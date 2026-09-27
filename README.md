@@ -7,9 +7,9 @@ tamper-evident, hash-chained trace, then replays that run step by step so you ca
 see exactly what happened and why.
 
 It is not a metrics dashboard. LangSmith, Langfuse and AgentOps already own that
-ground. Postflight's wedge is **replay + tamper-evidence + root cause**: a trace
-you can prove was not edited, and a causal chain that answers *why did the agent
-do that?*
+ground. Postflight's wedge is **replay + tamper-evidence + root cause**: a record
+that cannot be altered behind your back, and a causal chain that answers *why did
+the agent do that?*
 
 ```python
 import postflight
@@ -74,8 +74,14 @@ event, and each event's hash covers the previous event's hash:
 ```
 
 Edit an event, drop one, or reorder two, and `postflight verify` names the first
-event where the trace stopped being trustworthy. That is the whole point: a trace
-is evidence, not a log file.
+event where the trace stopped being trustworthy.
+
+**What that proves, precisely.** The chain is currently unsigned, so it detects
+corruption and alteration by anyone who does not hold the trace file. It does not
+stop someone who does: they can edit an event and re-seal the rest. Signing and
+countersigning at ingest close that gap — see
+[ADR 005](docs/decisions/005-signing-and-anchoring.md). Postflight says
+*tamper-evident* today, and will not say *tamper-proof* until that ships.
 
 Any event may carry `caused_by: [seq, …]` pointing at the earlier events that
 produced it. The SDK fills this in where it can — a tool call caused by the LLM

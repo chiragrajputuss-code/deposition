@@ -1,8 +1,8 @@
 """``postflight`` command line: view, verify, diff.
 
 Three commands, stdlib only. ``verify`` is the one that has to be beyond
-reproach - it is the command a user runs when they need to prove to someone else
-that a trace was not edited, so its exit code is part of its contract:
+reproach - it is the command a user runs when they need to show someone else that
+a trace was not altered, so its exit code is part of its contract:
 
 * ``0`` - every trace given verified
 * ``1`` - at least one trace is broken

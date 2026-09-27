@@ -78,6 +78,12 @@ that is present changes the hash, so "absent" and "null" must not be confusable.
 
 ### What the chain does and does not prove
 
+> **Amended 2026-09-27 by [ADR 005](005-signing-and-anchoring.md).** The section
+> below understates the limitation. The chain is unsigned, so anyone *holding the
+> trace file* can edit an event and re-seal the remainder into a chain that
+> verifies. What follows is true only against parties who cannot rewrite the
+> file. ADR 005 is the fix.
+
 It proves **nothing was changed, removed from the middle, or reordered**.
 
 It does **not** prove nothing was removed from the end — truncating a trace
