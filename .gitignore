@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+# local traces produced by examples / manual runs. Anchored with a leading
+# slash: a bare `postflight/` would also exclude src/postflight/.
+/postflight/
+*.jsonl
+!tests/**/*.jsonl
+.DS_Store
