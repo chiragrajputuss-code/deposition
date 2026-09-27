@@ -1,4 +1,4 @@
-"""A real agent, recorded: Claude plus one tool.
+"""A real agent, recorded automatically: Claude plus one tool.
 
 Needs the Anthropic SDK and an API key:
 
@@ -6,15 +6,15 @@ Needs the Anthropic SDK and an API key:
     export ANTHROPIC_API_KEY=sk-ant-...
     python examples/03_anthropic_agent.py
 
-Auto-instrumentation is still landing, so this example records the LLM call
-explicitly. When `postflight.init()` patches the Anthropic client, the
-`postflight.log("llm_call", ...)` below becomes unnecessary and the trace looks
-the same.
+Note what is *not* here: no logging code around the model call. `postflight.init`
+patches the Anthropic client, so the `llm_call` event - request, response, token
+usage, latency - is recorded on its own. The only thing the agent declares is its
+own tool execution, and even that is linked back to the model output
+automatically, because Postflight saw Claude ask for `get_weather` by name.
 """
 
 import os
 import sys
-import time
 
 import postflight
 
@@ -46,38 +46,24 @@ def main() -> int:
         print("set ANTHROPIC_API_KEY to run this example", file=sys.stderr)
         return 1
 
-    client = anthropic.Anthropic()
     postflight.init(project="examples")
+    client = anthropic.Anthropic()
 
     @postflight.record(name="weather-agent")
     def run_agent(question: str) -> str:
         messages = [{"role": "user", "content": question}]
 
-        started = time.monotonic()
+        # Recorded automatically - no postflight call needed here.
         response = client.messages.create(
             model=MODEL, max_tokens=512, tools=TOOLS, messages=messages
-        )
-        call = postflight.log(
-            "llm_call",
-            {
-                "provider": "anthropic",
-                "gen_ai.request.model": MODEL,
-                "messages": messages,
-                "response": [block.model_dump() for block in response.content],
-                "usage": {
-                    "input_tokens": response.usage.input_tokens,
-                    "output_tokens": response.usage.output_tokens,
-                    "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
-                },
-                "latency_ms": round((time.monotonic() - started) * 1000, 3),
-            },
         )
 
         for block in response.content:
             if block.type != "tool_use":
                 continue
-            # caused_by points at the model output that asked for this call.
-            with postflight.step("tool_call", tool=block.name, caused_by=[call]) as body:
+            # No caused_by argument: Postflight already saw Claude request this
+            # tool by name, so the causal edge is observed, not guessed.
+            with postflight.step("tool_call", tool=block.name) as body:
                 body["arguments"] = block.input
                 body["result"] = get_weather(**block.input)
 

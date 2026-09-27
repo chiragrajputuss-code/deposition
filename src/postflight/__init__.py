@@ -86,6 +86,9 @@ class Run:
         self.totals = {"steps": 0, "tokens": 0, "cost_usd": 0.0}
         self.ended = False
         self._lock = threading.Lock()
+        #: tool name -> seq of the llm_call whose response asked for it. Filled by
+        #: auto-instrumentation and used to record observed causal edges.
+        self.tool_requests: dict[str, int] = {}
 
     @property
     def path(self) -> str:
@@ -103,6 +106,7 @@ class Run:
         if self.recorder.redact is not None:
             body = self.recorder.redact(body)
         body = self.exporter.externalize_body(body)
+        caused_by = self._observed_cause(type, body, caused_by)
         with self._lock:
             sealed = self.chain.append(type, body, caused_by=caused_by)
             if sealed["type"] not in (EventType.RUN_START.value, EventType.RUN_END.value):
@@ -114,6 +118,33 @@ class Run:
                 self.totals["cost_usd"] += float(body["cost_usd"])
         self.exporter.export(sealed)
         return sealed["seq"]
+
+    def note_tool_requests(self, seq: int, tools: Iterable[str]) -> None:
+        """Remember which ``llm_call`` asked for which tools."""
+        for name in tools:
+            if isinstance(name, str):
+                self.tool_requests[name] = seq
+
+    def _observed_cause(
+        self,
+        type: EventType | str,
+        body: dict[str, Any],
+        caused_by: Iterable[int] | None,
+    ) -> Iterable[int] | None:
+        """Link a tool call to the model output that asked for it.
+
+        Only an *observed* edge: the tool name has to appear in the response of an
+        ``llm_call`` we already recorded. Nothing is inferred from adjacency - an
+        unexplained tool call keeps no edge at all, because a causal graph nobody
+        can trust is worse than a sparse one. An explicit ``caused_by`` always wins.
+        """
+        if caused_by is not None or str(type) != EventType.TOOL_CALL.value:
+            return caused_by
+        tool = body.get("tool")
+        if not isinstance(tool, str):
+            return None
+        seq = self.tool_requests.get(tool)
+        return [seq] if seq is not None else None
 
     def end(self, status: str = "ok", **extra: Any) -> None:
         if self.ended:
@@ -335,6 +366,10 @@ def flush(timeout: float = 5.0) -> None:
 def shutdown(timeout: float = 5.0) -> None:
     """Close every open run. Safe to call more than once."""
     global _recorder
+    with contextlib.suppress(Exception):
+        from .instrument import uninstall
+
+        uninstall()
     if _recorder is not None:
         with contextlib.suppress(Exception):
             _recorder.shutdown(timeout)

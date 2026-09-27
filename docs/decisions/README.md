@@ -9,6 +9,7 @@ evenings.
 | [001](001-positioning.md) | Positioning: how Postflight differs | accepted, prior-art review incomplete |
 | [002](002-schema-v0.md) | Trace schema v0 | **frozen** |
 | [003](003-zero-dependency-sdk.md) | The SDK has no required dependencies | accepted |
+| [004](004-auto-instrumentation.md) | Auto-instrumentation scope and causality | accepted |
 
 New ADRs are numbered sequentially and never edited after they are accepted —
 supersede them with a new one instead, so the reasoning stays readable in order.

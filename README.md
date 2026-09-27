@@ -18,10 +18,15 @@ postflight.init(project="support-triage")
 
 @postflight.record(name="triage-agent")
 def run_agent(ticket):
-    ...
+    # OpenAI and Anthropic calls are recorded automatically - request, response,
+    # token usage and latency - with no logging code in your agent.
+    response = client.messages.create(model="claude-sonnet-5", messages=[...])
 
-with postflight.step("decision", label="issue refund", caused_by=[13]):
-    ...
+    for block in response.content:
+        if block.type == "tool_use":
+            # No caused_by needed: Postflight saw the model ask for this tool.
+            with postflight.step("tool_call", tool=block.name) as body:
+                body["result"] = run_tool(block.name, block.input)
 ```
 
 ```console
@@ -45,7 +50,7 @@ replay viewer. A hosted platform (team storage, search, run diffing, causal
 | Local `.jsonl` recording | done |
 | CLI (`view` / `verify` / `diff`) | done |
 | Local replay viewer | done |
-| OpenAI / Anthropic auto-instrumentation | in progress |
+| OpenAI / Anthropic auto-instrumentation | done (non-streaming) |
 | Hosted mode | Phase 2 |
 
 ## Install
