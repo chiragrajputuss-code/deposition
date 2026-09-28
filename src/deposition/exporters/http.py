@@ -12,7 +12,7 @@ from typing import Any
 
 
 class HttpExporter:
-    DEFAULT_ENDPOINT = "https://api.postflight.dev/api/v0/ingest"
+    DEFAULT_ENDPOINT = "https://api.deposition.dev/api/v0/ingest"
 
     def __init__(self, token: str, endpoint: str = DEFAULT_ENDPOINT) -> None:
         self.token = token

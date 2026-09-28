@@ -43,7 +43,7 @@ def install(recorder: Recorder) -> list[str]:
 
 
 def uninstall() -> None:
-    """Restore every patched method. Called by ``postflight.shutdown()``."""
+    """Restore every patched method. Called by ``deposition.shutdown()``."""
     revert_all()
     _installed.clear()
 

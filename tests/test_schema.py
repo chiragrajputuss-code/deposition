@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from postflight.schema import (
+from deposition.schema import (
     BLOB_THRESHOLD_BYTES,
     SCHEMA_VERSION,
     Event,
@@ -76,7 +76,7 @@ def test_canonical_json_rejects_non_finite_numbers():
 
 
 def test_sha256_hex_is_lowercase_hex_of_the_right_length():
-    digest = sha256_hex(b"postflight")
+    digest = sha256_hex(b"deposition")
     assert len(digest) == 64
     assert digest == digest.lower()
     assert int(digest, 16) >= 0

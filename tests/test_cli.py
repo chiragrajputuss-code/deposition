@@ -1,6 +1,6 @@
 """CLI tests.
 
-``postflight verify`` is the command someone runs to prove to a third party that
+``deposition verify`` is the command someone runs to prove to a third party that
 a trace was not edited, so its exit code is a contract: 0 verified, 1 broken,
 2 could not run.
 """
@@ -11,9 +11,9 @@ import json
 
 import pytest
 
-from postflight.chain import ChainBuilder
-from postflight.cli import EXIT_BROKEN, EXIT_OK, EXIT_USAGE, main
-from postflight.schema import EventType, canonical_json
+from deposition.chain import ChainBuilder
+from deposition.cli import EXIT_BROKEN, EXIT_OK, EXIT_USAGE, main
+from deposition.schema import EventType, canonical_json
 
 TS = "2026-09-27T08:14:03.412Z"
 
@@ -158,7 +158,12 @@ def test_diff_reports_a_body_change_on_an_aligned_step(tmp_path, capsys):
 
 def test_no_command_prints_help_and_returns_two(capsys):
     assert main([]) == EXIT_USAGE
-    assert "usage: postflight" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    # The program name comes from argv[0] so that `depo` and `deposition` each
+    # describe themselves correctly; assert on the commands, not the prog name.
+    assert "usage:" in out
+    for command in ("view", "verify", "diff"):
+        assert command in out
 
 
 def test_version_reports_the_schema_version(capsys):

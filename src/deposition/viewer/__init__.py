@@ -1,6 +1,6 @@
 """Local replay viewer: a FastAPI app serving a pre-built single-page UI.
 
-``postflight view run.jsonl`` must work offline with zero setup, so the UI is a
+``deposition view run.jsonl`` must work offline with zero setup, so the UI is a
 static bundle shipped inside the wheel - there is no build step at runtime and
 no CDN request at page load.
 
@@ -76,7 +76,7 @@ def create_app(trace_path: str | os.PathLike[str]):
     from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
     trace_path = Path(trace_path).resolve()
-    app = FastAPI(title="Postflight viewer", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Deposition viewer", docs_url=None, redoc_url=None)
 
     @app.get("/api/trace")
     def api_trace() -> JSONResponse:
@@ -113,8 +113,8 @@ def serve(
     app = create_app(trace_path)
     url = f"http://{host}:{port}"
 
-    print(f"postflight: serving replay viewer on {url}")
-    print("postflight: press Ctrl+C to stop")
+    print(f"deposition: serving replay viewer on {url}")
+    print("deposition: press Ctrl+C to stop")
 
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

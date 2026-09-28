@@ -8,16 +8,16 @@ from __future__ import annotations
 
 import pytest
 
-import postflight
+import deposition
 
 
 @pytest.fixture(autouse=True)
 def _reset_recorder():
     yield
-    postflight.shutdown()
+    deposition.shutdown()
 
 
 @pytest.fixture
 def trace_dir(tmp_path):
     """A recording directory that vanishes with the test."""
-    return tmp_path / "postflight"
+    return tmp_path / "deposition"

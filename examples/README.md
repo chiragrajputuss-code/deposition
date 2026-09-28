@@ -1,6 +1,6 @@
 # Examples
 
-Run any of these from the repository root. Each writes a trace to `./postflight/`.
+Run any of these from the repository root. Each writes a trace to `./deposition/`.
 
 | Example | Needs | Shows |
 | --- | --- | --- |
@@ -10,12 +10,12 @@ Run any of these from the repository root. Each writes a trace to `./postflight/
 
 ```console
 $ python examples/02_tool_loop.py
-$ postflight verify ./postflight/run_*.jsonl
+$ deposition verify ./deposition/run_*.jsonl
 OK  8 events verified for run_aB3kQ2
 
-$ postflight view ./postflight/run_*.jsonl
-postflight: serving replay viewer on http://127.0.0.1:7878
+$ deposition view ./deposition/run_*.jsonl
+deposition: serving replay viewer on http://127.0.0.1:7878
 ```
 
 Then break one on purpose — edit a `body` field in the `.jsonl` by hand and run
-`postflight verify` again. That failure is the product.
+`deposition verify` again. That failure is the product.

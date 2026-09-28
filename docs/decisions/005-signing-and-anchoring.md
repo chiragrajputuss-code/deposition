@@ -10,7 +10,7 @@ proves — nothing was changed, removed from the middle, or reordered — but th
 statement is only true against an attacker who *cannot rewrite the file*.
 
 Anyone holding the trace can edit event 12, re-seal 12 through the end with the
-same public algorithm, and produce a trace that `postflight verify` calls clean.
+same public algorithm, and produce a trace that `deposition verify` calls clean.
 There is no secret involved, so there is nothing to forge.
 
 That is fatal to the sentence "prove to someone else that this trace was not
@@ -40,12 +40,12 @@ keyed by the head hash.
 ### 1. Sign the head at run end (Phase 1/2, small)
 
 `run_end` carries the head hash. The SDK signs it with an Ed25519 key and writes
-`run_<id>.sig` beside the trace. `postflight verify` reports signature status
+`run_<id>.sig` beside the trace. `deposition verify` reports signature status
 alongside chain status.
 
 Key management is the hard part for a local-first tool: a key on the same disk as
 the trace protects against very little. Ship it as opt-in
-(`postflight.init(signing_key=...)`), be explicit that a local key only raises the
+(`deposition.init(signing_key=...)`), be explicit that a local key only raises the
 bar, and treat the hosted path below as the real answer.
 
 ### 2. Countersign at ingest (Phase 2, the real fix)

@@ -1,4 +1,4 @@
-"""``postflight`` command line: view, verify, diff.
+"""``deposition`` command line: view, verify, diff.
 
 Three commands, stdlib only. ``verify`` is the one that has to be beyond
 reproach - it is the command a user runs when they need to show someone else that
@@ -48,7 +48,7 @@ def _load(path: str) -> list[Any]:
 
 
 def _die(message: str) -> None:
-    print(f"postflight: {message}", file=sys.stderr)
+    print(f"deposition: {message}", file=sys.stderr)
     raise SystemExit(EXIT_USAGE)
 
 
@@ -125,7 +125,7 @@ def cmd_view(args: argparse.Namespace) -> int:
     except ImportError as exc:  # pragma: no cover - depends on the environment
         _die(
             f"the local viewer needs its extra dependencies ({exc}).\n"
-            "  Install them with:  pip install 'postflight[viewer]'"
+            "  Install them with:  pip install 'deposition[viewer]'"
         )
 
     return serve(args.trace, host=args.host, port=args.port, open_browser=not args.no_browser)
@@ -203,13 +203,14 @@ def _comparable(body: Any) -> Any:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="postflight",
-        description="Flight recorder for AI agents: replay, verify and diff agent runs.",
+        # Left to argparse so `depo --help` says "depo", not "deposition".
+        prog=None,
+        description="Verbatim, tamper-evident records of AI agent runs: replay, verify and diff.",
     )
     parser.add_argument(
         "--version",
         action="version",
-        version=f"postflight {__version__} (trace schema v{SCHEMA_VERSION})",
+        version=f"deposition {__version__} (trace schema v{SCHEMA_VERSION})",
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 

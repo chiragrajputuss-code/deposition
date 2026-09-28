@@ -5,7 +5,7 @@ Wraps ``chat.completions.create`` and ``responses.create`` (sync and async) into
 ``gen_ai.request.model`` is the model, not ``model``.
 
 Patching happens on the resource *class*, so a client built before
-``postflight.init()`` is instrumented too - which is what people actually write.
+``deposition.init()`` is instrumented too - which is what people actually write.
 """
 
 from __future__ import annotations

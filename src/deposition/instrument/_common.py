@@ -76,8 +76,8 @@ _patches: list[_Patch] = []
 
 
 def instrumented(fn: Any) -> bool:
-    """Has this callable already been wrapped by Postflight?"""
-    return getattr(fn, "__postflight_wrapped__", False)
+    """Has this callable already been wrapped by Deposition?"""
+    return getattr(fn, "__deposition_wrapped__", False)
 
 
 def patch(
@@ -86,7 +86,7 @@ def patch(
     """Replace ``owner.name`` with ``factory(original)``. Returns whether it happened.
 
     Patching the class rather than an instance means clients created *before*
-    ``postflight.init()`` are instrumented too - which is what people actually
+    ``deposition.init()`` are instrumented too - which is what people actually
     write, since the client is usually a module-level global.
     """
     original = getattr(owner, name, None)
@@ -94,7 +94,7 @@ def patch(
         return False
 
     wrapper = factory(original)
-    wrapper.__postflight_wrapped__ = True
+    wrapper.__deposition_wrapped__ = True
     setattr(owner, name, wrapper)
     _patches.append(_Patch(owner, name, original))
     return True
@@ -127,7 +127,7 @@ def record_llm_call(
     run = recorder.run
     if run is None:
         # Instrumentation records into the active run. A call made outside
-        # @postflight.record has no run to belong to.
+        # @deposition.record has no run to belong to.
         return None
 
     body: dict[str, Any] = {"provider": provider}

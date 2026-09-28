@@ -1,7 +1,7 @@
 [project]
-name = "postflight"
+name = "deposition"
 version = "0.1.0.dev0"
-description = "Flight recorder for AI agents: tamper-evident, hash-chained traces with local replay."
+description = "A verbatim, tamper-evident record of every AI agent run, with local replay."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -34,20 +34,22 @@ dev = [
 ]
 
 [project.scripts]
-postflight = "postflight.cli:main"
+deposition = "deposition.cli:main"
+# `deposition verify ...` is a mouthful; depo is the one people will type.
+depo = "deposition.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/canvas-dev/postflight"
-Source = "https://github.com/canvas-dev/postflight"
+Homepage = "https://github.com/canvas-dev/deposition"
+Source = "https://github.com/canvas-dev/deposition"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/postflight"]
+packages = ["src/deposition"]
 # Editable installs need the src root on sys.path explicitly; without this
-# hatchling emits no .pth and `import postflight` fails in the dev venv.
+# hatchling emits no .pth and `import deposition` fails in the dev venv.
 dev-mode-dirs = ["src"]
 
 [tool.pytest.ini_options]

@@ -11,13 +11,13 @@ import json
 
 import pytest
 
-from postflight.chain import ChainBuilder
-from postflight.schema import EventType, blob_ref, canonical_json
+from deposition.chain import ChainBuilder
+from deposition.schema import EventType, blob_ref, canonical_json
 
 fastapi = pytest.importorskip("fastapi", reason="viewer extra not installed")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from postflight.viewer import create_app, load_trace, resolve_blob_refs  # noqa: E402
+from deposition.viewer import create_app, load_trace, resolve_blob_refs  # noqa: E402
 
 TS = "2026-09-27T08:14:03.412Z"
 
@@ -102,7 +102,7 @@ def test_an_empty_trace_loads_without_raising(tmp_path):
 def test_the_index_page_is_served_from_the_bundled_static_file(client):
     response = client.get("/")
     assert response.status_code == 200
-    assert "Postflight" in response.text
+    assert "Deposition" in response.text
     # No build step, no CDN: the page must be self-contained.
     assert "http://" not in response.text.split("<script>")[0].replace("http://www.w3.org", "")
 

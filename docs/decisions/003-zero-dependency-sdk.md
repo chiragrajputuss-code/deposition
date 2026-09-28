@@ -4,14 +4,14 @@
 
 ## Decision
 
-`pip install postflight` pulls in **nothing**. The core SDK — schema, hash chain,
+`pip install deposition` pulls in **nothing**. The core SDK — schema, hash chain,
 recording, local `.jsonl` export, CLI — is standard library only.
 
 Everything heavier is an extra:
 
 | Extra | Brings | For |
 | --- | --- | --- |
-| `viewer` | FastAPI, uvicorn | `postflight view` |
+| `viewer` | FastAPI, uvicorn | `deposition view` |
 | `otel` | OpenTelemetry SDK | the OTel bridge (Phase 4) |
 | `dev` | pytest, ruff, pip-audit, httpx | contributors |
 
@@ -29,12 +29,12 @@ credibility, and it is worth being able to say that computing it involves
 
 ## Consequences
 
-- `src/postflight/schema.py` and `chain.py` must never import outside the stdlib.
+- `src/deposition/schema.py` and `chain.py` must never import outside the stdlib.
   This is a review rule, not a preference.
 - The viewer's UI is a **pre-built** static bundle shipped inside the wheel: no
-  build step at runtime, no CDN request at page load. `postflight view run.jsonl`
+  build step at runtime, no CDN request at page load. `deposition view run.jsonl`
   works offline with zero setup.
-- `postflight view` without the extra fails with an instruction, not a traceback.
+- `deposition view` without the extra fails with an instruction, not a traceback.
 - Anything tempting us to add a required dependency (pydantic for validation, a
   HTTP client for hosted mode) gets written by hand instead. Validation is ~120
   lines; hosted upload will use `urllib`.

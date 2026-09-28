@@ -7,7 +7,7 @@ the hosted platform indexes it, and the hash chain guarantees it. It is frozen
 here so that every later component can be built against a fixed target.
 
 > **Changing anything on this page is a schema version bump**, not a bug fix.
-> Bump `SCHEMA_VERSION` in `src/postflight/schema.py` and add a migration note as
+> Bump `SCHEMA_VERSION` in `src/deposition/schema.py` and add a migration note as
 > a new ADR in this directory.
 
 ## The envelope
@@ -73,7 +73,7 @@ that is present changes the hash, so "absent" and "null" must not be confusable.
 4. Verification replays the chain from the genesis hash and fails loudly on any
    gap, edit or reorder, naming the **first** event where the trace stops being
    trustworthy. One clear verdict beats a wall of downstream noise.
-5. `postflight verify run.jsonl` is a first-class command with a contract exit
+5. `deposition verify run.jsonl` is a first-class command with a contract exit
    code: `0` verified, `1` broken, `2` could not run.
 
 ### What the chain does and does not prove
@@ -121,6 +121,6 @@ belong in the product.
 
 Field names mirror the OTel GenAI semantic conventions wherever they overlap
 (`gen_ai.request.model`, token-usage attributes) so an OTel bridge stays cheap.
-Postflight does not adopt the OTel data model itself: spans are a tree of
+Deposition does not adopt the OTel data model itself: spans are a tree of
 durations, and a trace here is an ordered, hash-linked log. The two are not the
 same shape, and pretending otherwise would cost the chain.

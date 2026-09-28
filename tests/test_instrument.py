@@ -14,10 +14,10 @@ import json
 
 import pytest
 
-import postflight
-from postflight import instrument
-from postflight.chain import verify_file
-from postflight.instrument import _common
+import deposition
+from deposition import instrument
+from deposition.chain import verify_file
+from deposition.instrument import _common
 
 anthropic_sdk = pytest.importorskip("anthropic")
 openai_sdk = pytest.importorskip("openai")
@@ -86,7 +86,7 @@ def anthropic_response(*, tool: str | None = "get_weather", text: str | None = N
 
 
 class _Provider:
-    """Swaps a resource method for a stub, then lets Postflight patch on top."""
+    """Swaps a resource method for a stub, then lets Deposition patch on top."""
 
     def __init__(self, owner, name, stub):
         self.owner, self.name, self.stub = owner, name, stub
@@ -102,7 +102,7 @@ class _Provider:
         return self
 
     def __exit__(self, *exc):
-        # Postflight's patch must come off before the stub does, or reverting it
+        # Deposition's patch must come off before the stub does, or reverting it
         # would reinstate the stub as if it were the SDK's own method.
         instrument.uninstall()
         setattr(self.owner, self.name, self.original)
@@ -130,15 +130,15 @@ def events(path):
 
 
 def run_and_read(trace_dir, fn):
-    postflight.init("test-project", directory=trace_dir)
+    deposition.init("test-project", directory=trace_dir)
 
-    @postflight.record(name="instrumented-agent")
+    @deposition.record(name="instrumented-agent")
     def agent():
         return fn()
 
     agent()
-    path = postflight._recorder._runs[-1].path
-    postflight.shutdown()
+    path = deposition._recorder._runs[-1].path
+    deposition.shutdown()
     return events(path)
 
 
@@ -146,34 +146,34 @@ def run_and_read(trace_dir, fn):
 
 
 def test_init_patches_both_providers(trace_dir, openai_calls, anthropic_calls):
-    postflight.init("test-project", directory=trace_dir)
+    deposition.init("test-project", directory=trace_dir)
     assert set(instrument.installed()) == {"openai", "anthropic"}
 
 
 def test_instrument_false_leaves_the_clients_alone(trace_dir, openai_calls):
-    postflight.init("test-project", directory=trace_dir, instrument=False)
+    deposition.init("test-project", directory=trace_dir, instrument=False)
     assert instrument.installed() == []
 
 
 def test_shutdown_restores_the_original_methods(trace_dir, openai_calls):
     from openai.resources.chat.completions import Completions
 
-    postflight.init("test-project", directory=trace_dir)
+    deposition.init("test-project", directory=trace_dir)
     assert _common.instrumented(Completions.create)
-    postflight.shutdown()
+    deposition.shutdown()
     assert not _common.instrumented(Completions.create)
     assert instrument.installed() == []
 
 
 def test_patching_twice_does_not_double_wrap(trace_dir, openai_calls):
-    postflight.init("test-project", directory=trace_dir)
-    assert instrument.install(postflight._recorder) == []
+    deposition.init("test-project", directory=trace_dir)
+    assert instrument.install(deposition._recorder) == []
 
 
 def test_install_is_a_no_op_when_a_provider_is_missing(trace_dir, monkeypatch):
     # A user with only one SDK installed must not get an error about the other.
     monkeypatch.setitem(__import__("sys").modules, "anthropic", None)
-    postflight.init("test-project", directory=trace_dir)
+    deposition.init("test-project", directory=trace_dir)
     assert "anthropic" not in instrument.installed()
 
 
@@ -220,14 +220,14 @@ def test_openai_usage_is_normalised_to_the_schema_names(trace_dir, openai_calls)
 
 def test_the_provider_object_is_returned_unchanged(trace_dir, openai_calls):
     client = openai_sdk.OpenAI(api_key="test")
-    postflight.init("test-project", directory=trace_dir)
+    deposition.init("test-project", directory=trace_dir)
 
-    @postflight.record(name="agent")
+    @deposition.record(name="agent")
     def agent():
         return client.chat.completions.create(model="gpt-4o-mini", messages=[])
 
     result = agent()
-    postflight.shutdown()
+    deposition.shutdown()
     assert isinstance(result, ChatCompletion)
     assert result.choices[0].message.tool_calls[0].function.name == "get_weather"
 
@@ -286,7 +286,7 @@ def test_a_tool_call_is_linked_to_the_model_output_that_asked_for_it(trace_dir, 
         client.messages.create(
             model="claude-sonnet-5", messages=[], tools=[WEATHER_TOOL_ANTHROPIC]
         )
-        with postflight.step("tool_call", tool="get_weather") as body:
+        with deposition.step("tool_call", tool="get_weather") as body:
             body["result"] = "18C"
 
     recorded = run_and_read(trace_dir, work)
@@ -300,7 +300,7 @@ def test_the_same_link_is_made_for_openai_tool_calls(trace_dir, openai_calls):
 
     def work():
         client.chat.completions.create(model="gpt-4o-mini", messages=[])
-        with postflight.step("tool_call", tool="get_weather"):
+        with deposition.step("tool_call", tool="get_weather"):
             pass
 
     recorded = run_and_read(trace_dir, work)
@@ -314,7 +314,7 @@ def test_a_tool_the_model_never_asked_for_gets_no_causal_edge(trace_dir, anthrop
 
     def work():
         client.messages.create(model="claude-sonnet-5", messages=[])
-        with postflight.step("tool_call", tool="send_email"):
+        with deposition.step("tool_call", tool="send_email"):
             pass
 
     recorded = run_and_read(trace_dir, work)
@@ -326,7 +326,7 @@ def test_an_explicit_caused_by_always_wins(trace_dir, anthropic_calls):
 
     def work():
         client.messages.create(model="claude-sonnet-5", messages=[])
-        with postflight.step("tool_call", tool="get_weather", caused_by=[0]):
+        with deposition.step("tool_call", tool="get_weather", caused_by=[0]):
             pass
 
     recorded = run_and_read(trace_dir, work)
@@ -339,7 +339,7 @@ def test_the_link_points_at_the_most_recent_request_for_that_tool(trace_dir, ant
     def work():
         client.messages.create(model="claude-sonnet-5", messages=[])
         client.messages.create(model="claude-sonnet-5", messages=[])
-        with postflight.step("tool_call", tool="get_weather"):
+        with deposition.step("tool_call", tool="get_weather"):
             pass
 
     recorded = run_and_read(trace_dir, work)
@@ -357,16 +357,16 @@ def test_a_provider_error_is_recorded_and_still_raised(trace_dir):
 
     with _Provider(Messages, "create", explode):
         client = anthropic_sdk.Anthropic(api_key="test")
-        postflight.init("test-project", directory=trace_dir)
+        deposition.init("test-project", directory=trace_dir)
 
-        @postflight.record(name="agent")
+        @deposition.record(name="agent")
         def agent():
             client.messages.create(model="claude-sonnet-5", messages=[])
 
         with pytest.raises(RuntimeError, match="rate limited"):
             agent()
-        path = postflight._recorder._runs[-1].path
-        postflight.shutdown()
+        path = deposition._recorder._runs[-1].path
+        deposition.shutdown()
 
     recorded = events(path)
     call = recorded[1]
@@ -387,7 +387,7 @@ def test_a_streamed_call_says_the_response_was_not_captured(trace_dir, anthropic
 
 def test_a_call_outside_a_run_is_not_recorded_and_does_not_fail(trace_dir, anthropic_calls):
     client = anthropic_sdk.Anthropic(api_key="test")
-    postflight.init("test-project", directory=trace_dir)
+    deposition.init("test-project", directory=trace_dir)
     assert client.messages.create(model="claude-sonnet-5", messages=[]).id == "msg_1"
 
 
@@ -408,17 +408,17 @@ def test_an_unserialisable_argument_does_not_lose_the_event(trace_dir, anthropic
 
 def test_an_instrumented_run_still_verifies(trace_dir, anthropic_calls):
     client = anthropic_sdk.Anthropic(api_key="test")
-    postflight.init("test-project", directory=trace_dir)
+    deposition.init("test-project", directory=trace_dir)
 
-    @postflight.record(name="agent")
+    @deposition.record(name="agent")
     def agent():
         client.messages.create(model="claude-sonnet-5", messages=[], tools=[WEATHER_TOOL_ANTHROPIC])
-        with postflight.step("tool_call", tool="get_weather"):
+        with deposition.step("tool_call", tool="get_weather"):
             pass
 
     agent()
-    path = postflight._recorder._runs[-1].path
-    postflight.shutdown()
+    path = deposition._recorder._runs[-1].path
+    deposition.shutdown()
     assert verify_file(path).ok
 
 
@@ -439,15 +439,15 @@ def test_an_async_call_is_recorded(trace_dir):
     AsyncMessages.create = recorded_create
     try:
         client = anthropic_sdk.AsyncAnthropic(api_key="test")
-        postflight.init("test-project", directory=trace_dir)
+        deposition.init("test-project", directory=trace_dir)
 
-        @postflight.record(name="async-agent")
+        @deposition.record(name="async-agent")
         def agent():
             return asyncio.run(client.messages.create(model="claude-sonnet-5", messages=[]))
 
         result = agent()
-        path = postflight._recorder._runs[-1].path
-        postflight.shutdown()
+        path = deposition._recorder._runs[-1].path
+        deposition.shutdown()
     finally:
         instrument.uninstall()
         AsyncMessages.create = original

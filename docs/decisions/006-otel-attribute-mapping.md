@@ -15,11 +15,11 @@ Phase 4 bridge is a lookup table rather than a research project.
 ## Where we deliberately differ
 
 The conventions are **span attributes** — a flat key space on a tree of
-durations. A Postflight event is an ordered, hash-linked log entry with a nested
+durations. A Deposition event is an ordered, hash-linked log entry with a nested
 `body`. Flattening every attribute to its dotted OTel name would make bodies
 unreadable and the chain no cheaper to verify, so the mapping stays a mapping.
 
-| Postflight (`llm_call` body) | OTel attribute | Note |
+| Deposition (`llm_call` body) | OTel attribute | Note |
 | --- | --- | --- |
 | `provider` | `gen_ai.provider.name` | Required in OTel |
 | `gen_ai.request.model` | `gen_ai.request.model` | identical |
@@ -49,13 +49,13 @@ unreadable and the chain no cheaper to verify, so the mapping stays a mapping.
 ## What OTel has no place for
 
 `caused_by`, `prev_hash`, `hash` and `seq`. Causality and integrity are exactly
-what Postflight adds, and there is nowhere in the conventions to put them — an
+what Deposition adds, and there is nowhere in the conventions to put them — an
 OTel export is therefore **lossy by definition**. The bridge exports what maps
 and drops the rest; it is a convenience for people who already run a collector,
 never the canonical record.
 
 Note also that OTel marks messages, system instructions and tool definitions
-**Opt-In**, because they are the expensive and sensitive parts. Postflight records
+**Opt-In**, because they are the expensive and sensitive parts. Deposition records
 them by default — they are the whole point of a replay tool — which is why the
 `redact` hook is documented as prominently as it is.
 

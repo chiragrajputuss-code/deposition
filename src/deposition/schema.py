@@ -2,7 +2,7 @@
 
 One run = one append-only event log. Each line of a ``.jsonl`` trace is one
 event. The SDK writes this schema, the viewer renders it, the platform indexes
-it, and the hash chain (see :mod:`postflight.chain`) guarantees it.
+it, and the hash chain (see :mod:`deposition.chain`) guarantees it.
 
 Field names mirror the OpenTelemetry GenAI semantic conventions wherever they
 overlap (``gen_ai.request.model``, token-usage attributes) so an OTel bridge
@@ -136,7 +136,7 @@ def is_blob_ref(value: Any) -> bool:
 class Event:
     """One line of a trace.
 
-    ``prev_hash`` and ``hash`` are filled by :mod:`postflight.chain` when the
+    ``prev_hash`` and ``hash`` are filled by :mod:`deposition.chain` when the
     event is sealed; they are ``None`` on an event that has not been chained yet.
     """
 

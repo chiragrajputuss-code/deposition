@@ -4,7 +4,7 @@
 
 ## What is patched
 
-`postflight.init()` patches the **resource classes**, not client instances:
+`deposition.init()` patches the **resource classes**, not client instances:
 
 | Provider | Patched |
 | --- | --- |
@@ -30,7 +30,7 @@ against that event's `seq`. A later `tool_call` event with a matching `tool` nam
 and no explicit `caused_by` gets the edge. Anything unmatched gets **no edge at
 all**.
 
-The reason is the product, not the code. Postflight's claim is that a trace is
+The reason is the product, not the code. Deposition's claim is that a trace is
 evidence. An audit report cannot present "the model asked for this tool by name"
 and "a tool ran shortly afterwards" as the same kind of fact. A sparse causal
 graph that is true beats a complete one that is guessed.

@@ -1,6 +1,6 @@
 """Hash chain tests.
 
-Postflight's claim is that a trace is evidence: if anyone edits, drops, inserts
+Deposition's claim is that a trace is evidence: if anyone edits, drops, inserts
 or reorders an event, verification says so and names the first event that broke.
 These tests are that claim, written down. A change to ``chain.py`` that is not
 covered here has not been reviewed.
@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from postflight.chain import (
+from deposition.chain import (
     GENESIS_HASH,
     ChainBuilder,
     ChainResult,
@@ -23,7 +23,7 @@ from postflight.chain import (
     verify,
     verify_file,
 )
-from postflight.schema import Event, EventType, SchemaError, canonical_json
+from deposition.schema import Event, EventType, SchemaError, canonical_json
 
 TS = "2026-09-27T08:14:03.412Z"
 

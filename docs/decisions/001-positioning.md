@@ -1,10 +1,10 @@
-# 001 — Positioning: how Postflight differs
+# 001 — Positioning: how Deposition differs
 
 **Status:** accepted · **Date:** 2026-09-27 · **Prior-art review:** completed 2026-09-27
 
 ## The wedge
 
-Postflight is **replay + tamper-evidence + root cause**, not monitoring.
+Deposition is **replay + tamper-evidence + root cause**, not monitoring.
 
 LangSmith, Langfuse and AgentOps own the observability-metrics ground and are
 better resourced than a solo developer with 8–10 hours a week. Competing on
@@ -27,7 +27,7 @@ re-run live from there; gives first-divergence diffs with improved / regressed /
 unchanged verdicts. Python and TypeScript SDKs, hosted, closed source, five paid
 tiers from free (1,000 traces) through $29 / $99 / $399 to $2,000 enterprise.
 
-It is ahead of Postflight on replay: forking is a harder feature than viewing,
+It is ahead of Deposition on replay: forking is a harder feature than viewing,
 and a TypeScript SDK is a year-one non-goal here. It makes **no integrity claim
 at all** — nothing about hash chains, signatures or third-party verification.
 
@@ -79,7 +79,7 @@ do not capture the prompt, the model's actual output, the tool arguments or the
 result, so they cannot replay anything and they cannot answer *why*. The replay
 tools capture all of that and make no claim that the record is trustworthy.
 
-Postflight's defensible position is the empty cell, plus two things that appear
+Deposition's defensible position is the empty cell, plus two things that appear
 nowhere in the field:
 
 1. **Automatic full-fidelity capture.** `init()` patches the OpenAI and Anthropic
@@ -94,7 +94,7 @@ That is narrower than "we have a hash chain", and it is true.
 
 ## The finding that changes the product
 
-**Postflight's chain is unsigned, and an unsigned hash chain does not support the
+**Deposition's chain is unsigned, and an unsigned hash chain does not support the
 claim the README makes.**
 
 The chain detects accidental corruption and naive edits. It does not stop anyone

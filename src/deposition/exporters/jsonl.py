@@ -34,7 +34,7 @@ class JsonlExporter:
     def __init__(
         self,
         run_id: str,
-        directory: str | os.PathLike[str] = "./postflight",
+        directory: str | os.PathLike[str] = "./deposition",
         *,
         blob_threshold: int = BLOB_THRESHOLD_BYTES,
         queue_size: int = 10_000,
@@ -51,7 +51,7 @@ class JsonlExporter:
         self._idle = threading.Event()
         self._idle.set()
         self._thread = threading.Thread(
-            target=self._run, name=f"postflight-writer-{run_id}", daemon=True
+            target=self._run, name=f"deposition-writer-{run_id}", daemon=True
         )
         self._thread.start()
 

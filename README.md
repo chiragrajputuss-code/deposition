@@ -1,22 +1,25 @@
-# Postflight
+# Deposition
 
-**A flight recorder for AI agents.**
+**A sworn record of what your AI agent actually did.**
 
-Postflight records every LLM call, tool call and decision your agent makes into a
+*A deposition is sworn testimony, recorded verbatim outside a courtroom and used
+as evidence when someone later disputes what happened. That is the idea.*
+
+Deposition records every LLM call, tool call and decision your agent makes into a
 tamper-evident, hash-chained trace, then replays that run step by step so you can
 see exactly what happened and why.
 
 It is not a metrics dashboard. LangSmith, Langfuse and AgentOps already own that
-ground. Postflight's wedge is **replay + tamper-evidence + root cause**: a record
+ground. Deposition's wedge is **replay + tamper-evidence + root cause**: a record
 that cannot be altered behind your back, and a causal chain that answers *why did
 the agent do that?*
 
 ```python
-import postflight
+import deposition
 
-postflight.init(project="support-triage")
+deposition.init(project="support-triage")
 
-@postflight.record(name="triage-agent")
+@deposition.record(name="triage-agent")
 def run_agent(ticket):
     # OpenAI and Anthropic calls are recorded automatically - request, response,
     # token usage and latency - with no logging code in your agent.
@@ -24,16 +27,16 @@ def run_agent(ticket):
 
     for block in response.content:
         if block.type == "tool_use":
-            # No caused_by needed: Postflight saw the model ask for this tool.
-            with postflight.step("tool_call", tool=block.name) as body:
+            # No caused_by needed: Deposition saw the model ask for this tool.
+            with deposition.step("tool_call", tool=block.name) as body:
                 body["result"] = run_tool(block.name, block.input)
 ```
 
 ```console
-$ postflight verify ./postflight/run_9f3kQ2.jsonl
+$ depo verify ./deposition/run_9f3kQ2.jsonl
 OK  42 events verified for run_9f3kQ2
 
-$ postflight view ./postflight/run_9f3kQ2.jsonl
+$ depo view ./deposition/run_9f3kQ2.jsonl
 serving replay viewer on http://127.0.0.1:7878
 ```
 
@@ -56,8 +59,8 @@ replay viewer. A hosted platform (team storage, search, run diffing, causal
 ## Install
 
 ```console
-pip install postflight            # SDK + CLI
-pip install 'postflight[viewer]'  # adds the local replay viewer
+pip install deposition            # SDK + the `depo` CLI
+pip install 'deposition[viewer]'  # adds the local replay viewer
 ```
 
 Python 3.10+. The SDK itself has **zero** required dependencies — heavy deps kill
@@ -73,14 +76,14 @@ event, and each event's hash covers the previous event's hash:
  "type":"tool_call","body":{...},"prev_hash":"9c41…","hash":"e7f2…"}
 ```
 
-Edit an event, drop one, or reorder two, and `postflight verify` names the first
+Edit an event, drop one, or reorder two, and `deposition verify` names the first
 event where the trace stopped being trustworthy.
 
 **What that proves, precisely.** The chain is currently unsigned, so it detects
 corruption and alteration by anyone who does not hold the trace file. It does not
 stop someone who does: they can edit an event and re-seal the rest. Signing and
 countersigning at ingest close that gap — see
-[ADR 005](docs/decisions/005-signing-and-anchoring.md). Postflight says
+[ADR 005](docs/decisions/005-signing-and-anchoring.md). Deposition says
 *tamper-evident* today, and will not say *tamper-proof* until that ships.
 
 Any event may carry `caused_by: [seq, …]` pointing at the earlier events that
@@ -90,11 +93,11 @@ this happen?".
 
 ## Privacy
 
-Your prompts are your data. `postflight.init(redact=...)` runs on every event
+Your prompts are your data. `deposition.init(redact=...)` runs on every event
 body **before** anything is hashed or written to disk:
 
 ```python
-postflight.init(project="support-triage", redact=strip_pii)
+deposition.init(project="support-triage", redact=strip_pii)
 ```
 
 In local mode nothing leaves your machine at all.

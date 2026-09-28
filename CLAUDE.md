@@ -1,8 +1,8 @@
-# Postflight — SDK repo
+# Deposition — SDK repo
 
-A flight recorder for AI agents: an append-only, hash-chained trace of every LLM
+A verbatim record of an AI agent run: an append-only, hash-chained trace of every LLM
 call, tool call and decision, plus a local replay viewer. Open source, Apache 2.0.
-The hosted platform lives in the private `postflight-cloud` repo.
+The hosted platform lives in the private `deposition-cloud` repo.
 
 **Read `docs/decisions/` at the start of every session.** Schema v0 is frozen in
 [`docs/decisions/002-schema-v0.md`](docs/decisions/002-schema-v0.md).
@@ -17,14 +17,14 @@ adding a required dependency needs a new ADR.
 ## Layout
 
 ```
-src/postflight/
+src/deposition/
   __init__.py      init(), record decorator, step context manager, Recorder/Run
   schema.py        trace schema v0: dataclasses, canonical JSON, validation
   chain.py         hash-chain build + verify
   instrument/      auto-patching: openai.py, anthropic.py
   exporters/       jsonl.py (local), http.py (hosted, Phase 2), otel.py (Phase 4)
   viewer/          FastAPI app + pre-built static UI
-  cli.py           postflight view / verify / diff
+  cli.py           deposition view / verify / diff
 tests/             chain + schema tests are non-negotiable
 examples/          3 runnable example agents
 docs/decisions/    ADRs
@@ -41,9 +41,9 @@ uv pip install --python .venv/bin/python -e '.[dev,viewer]'
 .venv/bin/ruff check src tests && .venv/bin/ruff format --check src tests
 .venv/bin/pip-audit
 
-.venv/bin/python examples/01_minimal.py          # writes ./postflight/run_*.jsonl
-.venv/bin/postflight verify ./postflight/run_*.jsonl
-.venv/bin/postflight view ./postflight/run_*.jsonl
+.venv/bin/python examples/01_minimal.py          # writes ./deposition/run_*.jsonl
+.venv/bin/deposition verify ./deposition/run_*.jsonl
+.venv/bin/deposition view ./deposition/run_*.jsonl
 ```
 
 ## Standing rules
@@ -54,7 +54,7 @@ uv pip install --python .venv/bin/python -e '.[dev,viewer]'
 - **Token plaintext never touches logs, error messages or the database.**
 - **Schema changes bump the `v` field** and add a migration note as a new ADR in
   `docs/decisions/`.
-- **Postflight failing must never fail the user's app.** Every public entry point
+- **Deposition failing must never fail the user's app.** Every public entry point
   is wrapped. The worst case is a missing trace, never a broken agent. Note the
   cost: a swallowed exception hides real bugs, so anything inside a
   `contextlib.suppress` needs a test that proves the happy path actually ran.

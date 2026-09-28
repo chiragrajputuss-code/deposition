@@ -9,8 +9,8 @@ build/
 .coverage
 htmlcov/
 # local traces produced by examples / manual runs. Anchored with a leading
-# slash: a bare `postflight/` would also exclude src/postflight/.
-/postflight/
+# slash: a bare `deposition/` would also exclude src/deposition/.
+/deposition/
 *.jsonl
 !tests/**/*.jsonl
 .DS_Store

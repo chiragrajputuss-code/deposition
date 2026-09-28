@@ -1,20 +1,20 @@
-"""Postflight - a flight recorder for AI agents.
+"""Deposition - a verbatim, tamper-evident record of an AI agent run.
 
-    import postflight
+    import deposition
 
-    postflight.init(project="support-triage")      # local mode
+    deposition.init(project="support-triage")      # local mode
 
-    @postflight.record(name="triage-agent")
+    @deposition.record(name="triage-agent")
     def run_agent(ticket): ...
 
-    with postflight.step("decision", label="issue refund", caused_by=[13]): ...
+    with deposition.step("decision", label="issue refund", caused_by=[13]): ...
 
 Two promises hold this SDK together:
 
-1. **Postflight failing must never fail your app.** Every public entry point is
+1. **Deposition failing must never fail your app.** Every public entry point is
    wrapped; the worst case is a missing trace, never a broken agent.
 2. **A trace is tamper-evident.** Events are hash-chained as they are recorded,
-   and ``postflight verify`` will say so if anything moved.
+   and ``deposition verify`` will say so if anything moved.
 """
 
 from __future__ import annotations
@@ -162,7 +162,7 @@ class Recorder:
         self,
         project: str,
         *,
-        directory: str | os.PathLike[str] = "./postflight",
+        directory: str | os.PathLike[str] = "./deposition",
         token: str | None = None,
         redact: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         instrument: bool = True,
@@ -181,7 +181,7 @@ class Recorder:
             # Hosted mode is Phase 2. Say so rather than silently recording locally
             # under a name that implies upload.
             print(
-                "postflight: hosted mode is not available yet (Phase 2); "
+                "deposition: hosted mode is not available yet (Phase 2); "
                 "recording locally instead.",
                 file=sys.stderr,
             )
@@ -231,7 +231,7 @@ _recorder: Recorder | None = None
 def init(
     project: str,
     *,
-    directory: str | os.PathLike[str] = "./postflight",
+    directory: str | os.PathLike[str] = "./deposition",
     token: str | None = None,
     redact: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     instrument: bool = True,
@@ -376,5 +376,5 @@ def shutdown(timeout: float = 5.0) -> None:
         _recorder = None
 
 
-# Keep a reference so ``postflight.chain`` resolves after ``import postflight``.
+# Keep a reference so ``deposition.chain`` resolves after ``import deposition``.
 chain = _chain
