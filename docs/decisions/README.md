@@ -10,7 +10,7 @@ evenings.
 | [002](002-schema-v0.md) | Trace schema v0 | **frozen** |
 | [003](003-zero-dependency-sdk.md) | The SDK has no required dependencies | accepted |
 | [004](004-auto-instrumentation.md) | Auto-instrumentation scope and causality | accepted |
-| [005](005-signing-and-anchoring.md) | Signing and anchoring the chain | accepted, not yet implemented |
+| [005](005-signing-and-anchoring.md) | Signing and anchoring the chain | accepted; layer 1 shipped, 2–3 pending |
 | [006](006-otel-attribute-mapping.md) | OpenTelemetry GenAI attribute mapping | accepted |
 | [007](007-the-name.md) | The name | accepted |
 

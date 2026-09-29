@@ -1,12 +1,17 @@
-"""``deposition`` command line: view, verify, diff.
+"""``deposition`` command line: view, verify, diff, keygen.
 
-Three commands, stdlib only. ``verify`` is the one that has to be beyond
-reproach - it is the command a user runs when they need to show someone else that
-a trace was not altered, so its exit code is part of its contract:
+Stdlib only. ``verify`` is the one that has to be beyond reproach - it is the
+command a user runs when they need to show someone else that a trace was not
+altered, so its exit code is part of its contract:
 
 * ``0`` - every trace given verified
-* ``1`` - at least one trace is broken
+* ``1`` - at least one trace is broken, or carries a signature that fails
 * ``2`` - the command could not run (bad arguments, missing file)
+
+An *absent* signature is not a failure by default - most traces are unsigned and
+the chain still says something - but a signature that does not check out is,
+because that is positive evidence of tampering. ``--require-signature`` turns
+"unsigned" and "signed by a key I cannot check" into failures too.
 """
 
 from __future__ import annotations
@@ -19,9 +24,10 @@ import sys
 from collections.abc import Sequence
 from typing import Any
 
-from . import __version__
+from . import __version__, signing
 from .chain import ChainResult, read_jsonl, verify
 from .schema import SCHEMA_VERSION, is_blob_ref
+from .signing import SignatureError, SignatureResult
 
 __all__ = ["main"]
 
@@ -75,33 +81,77 @@ def _signature(event: dict[str, Any]) -> str:
 # -- verify -----------------------------------------------------------------
 
 
-def cmd_verify(args: argparse.Namespace) -> int:
-    results: list[tuple[str, ChainResult]] = []
-    for path in args.trace:
-        results.append((path, verify(_load(path))))
+#: Statuses that mean a signature is present and wrong - always a failure.
+_SIGNATURE_FAILED = {
+    signing.BAD_SIGNATURE,
+    signing.HEAD_MISMATCH,
+    signing.KEY_MISMATCH,
+    signing.MALFORMED,
+}
 
+
+def _check_signature(path: str, result: ChainResult, pinned: str | None) -> SignatureResult:
+    try:
+        sidecar = signing.read_sidecar(path)
+    except SignatureError as exc:
+        return SignatureResult(signing.MALFORMED, str(exc))
+    return signing.verify_sidecar(
+        sidecar,
+        head_hash=result.head_hash,
+        run_id=result.run_id,
+        expected_public_key=pinned,
+    )
+
+
+def _signature_ok(signature: SignatureResult, *, required: bool) -> bool:
+    if signature.status in _SIGNATURE_FAILED:
+        return False
+    return signature.trusted if required else True
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    pinned = None
+    if args.pubkey:
+        try:
+            pinned = signing.load_public_key(args.pubkey)
+        except SignatureError as exc:
+            _die(str(exc))
+
+    results: list[tuple[str, ChainResult, SignatureResult]] = []
+    for path in args.trace:
+        result = verify(_load(path))
+        results.append((path, result, _check_signature(path, result, pinned)))
+
+    required = args.require_signature
     if args.json:
         print(
             json.dumps(
                 [
                     {
                         "trace": path,
-                        "ok": result.ok,
+                        "ok": result.ok and _signature_ok(signature, required=required),
+                        "chain_ok": result.ok,
                         "run_id": result.run_id,
                         "events_checked": result.events_checked,
                         "head_hash": result.head_hash,
+                        "signature": {
+                            "status": signature.status,
+                            "message": signature.message,
+                            "public_key": signature.public_key,
+                            "signed_at": signature.signed_at,
+                        },
                         "errors": [
                             {"code": e.code, "message": e.message, "seq": e.seq, "line": e.line}
                             for e in result.errors
                         ],
                     }
-                    for path, result in results
+                    for path, result, signature in results
                 ],
                 indent=2,
             )
         )
     else:
-        for path, result in results:
+        for path, result, signature in results:
             print(f"{result.summary()}  [{path}]")
             for error in result.errors:
                 print(f"  {error}")
@@ -110,8 +160,53 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     "  This trace is not evidence of what happened. "
                     "Everything before the reported event is still intact."
                 )
+            # "!!" is reserved for a signature that actually failed; an absent or
+            # uncheckable one is a gap, not an alarm, and must not read like one.
+            if signature.ok:
+                marker = "OK "
+            elif signature.status in _SIGNATURE_FAILED:
+                marker = "!! "
+            else:
+                marker = "-- "
+            print(f"  {marker}signature: {signature.message}")
+            if result.ok and signature.status == signing.HEAD_MISMATCH:
+                # The chain is internally consistent and still not the trace that
+                # was signed: exactly the edit-and-reseal the signature exists for.
+                print(
+                    "  The chain re-seals cleanly, so it was rebuilt after signing. "
+                    "Trust the signature, not the chain."
+                )
 
-    return EXIT_OK if all(result.ok for _, result in results) else EXIT_BROKEN
+    return (
+        EXIT_OK
+        if all(
+            result.ok and _signature_ok(signature, required=required)
+            for _, result, signature in results
+        )
+        else EXIT_BROKEN
+    )
+
+
+# -- keygen -----------------------------------------------------------------
+
+
+def cmd_keygen(args: argparse.Namespace) -> int:
+    try:
+        key = signing.generate_key()
+        path = key.write(args.out)
+    except SignatureError as exc:
+        _die(str(exc))
+    except OSError as exc:
+        _die(f"cannot write {args.out}: {exc}")
+    print(f"private key  {path}  (keep this secret, mode 0600)")
+    print(f"public key   {path}.pub")
+    print(f"             {key.public_hex}")
+    print(
+        "\nGive the public key to whoever verifies your traces, by some route they\n"
+        "already trust, and have them run:  depo verify run.jsonl --pubkey <key>\n"
+        "A signature checked against a key that travelled with the trace proves nothing."
+    )
+    return EXIT_OK
 
 
 # -- view -------------------------------------------------------------------
@@ -224,7 +319,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_verify = sub.add_parser("verify", help="check a trace's hash chain")
     p_verify.add_argument("trace", nargs="+", help="one or more .jsonl trace files")
     p_verify.add_argument("--json", action="store_true", help="machine-readable output")
+    p_verify.add_argument(
+        "--pubkey",
+        metavar="KEY",
+        help="public key to check the signature against: 64 hex characters or a file holding them",
+    )
+    p_verify.add_argument(
+        "--require-signature",
+        action="store_true",
+        help="fail unless the trace carries a signature that verifies against --pubkey",
+    )
     p_verify.set_defaults(func=cmd_verify)
+
+    p_keygen = sub.add_parser("keygen", help="generate an Ed25519 signing key")
+    p_keygen.add_argument(
+        "--out",
+        default="deposition-signing-key.pem",
+        help="where to write the private key (default: ./deposition-signing-key.pem)",
+    )
+    p_keygen.set_defaults(func=cmd_keygen)
 
     p_diff = sub.add_parser("diff", help="compare the steps of two runs")
     p_diff.add_argument("left", help="baseline trace")

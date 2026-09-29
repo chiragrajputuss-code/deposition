@@ -1,6 +1,6 @@
 # 005 — Signing and anchoring the chain
 
-**Status:** accepted, not yet implemented · **Date:** 2026-09-27
+**Status:** accepted · layer 1 shipped 2026-09-29 · **Date:** 2026-09-27
 **Raised by:** the prior-art review in [ADR 001](001-positioning.md)
 
 ## The problem
@@ -74,3 +74,30 @@ eventually. RFC 6962 is the shape; do not invent one.
   just chain status, or it recreates the same overclaim in PDF form.
 - Signing is additive: an unsigned v0 trace stays verifiable forever, and a
   signature file is optional metadata. No schema bump.
+
+## Implementation note — layer 1, 2026-09-29
+
+Shipped as `src/deposition/signing.py` behind the `signing` extra
+(`cryptography`), so ADR 003 still holds for everyone who does not ask for it.
+
+- `deposition.init(signing_key=...)` takes a PEM path, PEM bytes or a 32-byte
+  raw key. It **raises** if the key cannot be loaded. Recording is otherwise
+  never allowed to raise, but silently recording unsigned traces for someone who
+  asked for signatures is a worse failure than a loud one at startup.
+- Each run writes `run_<id>.sig` beside its trace after the exporter closes, so
+  a signature only ever exists for a trace that is completely on disk.
+- The signature covers the whole sidecar — `run_id`, `head_hash`, `seq`,
+  `events`, `public_key`, `signed_at` — not the head hash alone. Signing the
+  head alone would let a valid sidecar be lifted onto another run's trace.
+- `depo verify --pubkey <hex|file>` pins the expected key; `--require-signature`
+  makes unsigned and unpinned traces exit non-zero. **Without a pinned key,
+  verification reports `signed by an unverified key`, never `verified`** — the
+  sidecar carries its own public key, so a rewriter can re-sign with a key of
+  their own. This is the detail that decides whether layer 1 is real or
+  decorative, and the CLI wording, the README and the exit codes all have to keep
+  saying it.
+- A present-and-failing signature exits 1 on its own, because that is positive
+  evidence of tampering. An absent one does not, because most traces are
+  unsigned and the chain still says something.
+
+Layers 2 and 3 are unchanged and still pending.

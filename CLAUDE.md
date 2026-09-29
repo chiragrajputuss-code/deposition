@@ -21,10 +21,11 @@ src/deposition/
   __init__.py      init(), record decorator, step context manager, Recorder/Run
   schema.py        trace schema v0: dataclasses, canonical JSON, validation
   chain.py         hash-chain build + verify
+  signing.py       Ed25519 signatures over the head hash ([signing] extra)
   instrument/      auto-patching: openai.py, anthropic.py
   exporters/       jsonl.py (local), http.py (hosted, Phase 2), otel.py (Phase 4)
   viewer/          FastAPI app + pre-built static UI
-  cli.py           deposition view / verify / diff
+  cli.py           deposition view / verify / diff / keygen
 tests/             chain + schema tests are non-negotiable
 examples/          3 runnable example agents
 docs/decisions/    ADRs
@@ -34,7 +35,7 @@ docs/decisions/    ADRs
 
 ```bash
 uv venv --python 3.12 .venv                      # first time
-uv pip install --python .venv/bin/python -e '.[dev,viewer]'
+uv pip install --python .venv/bin/python -e '.[dev,viewer]'   # dev pulls in signing too
 
 .venv/bin/python -m pytest                       # all tests
 .venv/bin/python -m pytest tests/test_chain.py   # the ones that matter most
@@ -48,9 +49,12 @@ uv pip install --python .venv/bin/python -e '.[dev,viewer]'
 
 ## Standing rules
 
-- **Every change to `chain.py` or `schema.py` ships with new or updated tests in
-  the same commit.** No exceptions. These two files are the product's
-  credibility.
+- **Every change to `chain.py`, `schema.py` or `signing.py` ships with new or
+  updated tests in the same commit.** No exceptions. These three files are the
+  product's credibility.
+- **Never report a signature as verified without a pinned key.** A sidecar
+  carries its own public key; whoever rewrites a trace can re-sign it. See the
+  implementation note in ADR 005.
 - **Token plaintext never touches logs, error messages or the database.**
 - **Schema changes bump the `v` field** and add a migration note as a new ADR in
   `docs/decisions/`.
@@ -59,6 +63,8 @@ uv pip install --python .venv/bin/python -e '.[dev,viewer]'
   cost: a swallowed exception hides real bugs, so anything inside a
   `contextlib.suppress` needs a test that proves the happy path actually ran.
 - **`schema.py` and `chain.py` import nothing outside the standard library.**
+  `signing.py` is the single exception, and imports `cryptography` lazily so the
+  module stays importable without the extra.
 - Never leave a session with a half-broken repo: end with tests green and a
   commit.
 

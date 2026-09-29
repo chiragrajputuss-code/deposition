@@ -20,6 +20,9 @@ dependencies = []
 
 [project.optional-dependencies]
 viewer = ["fastapi>=0.110", "uvicorn>=0.29"]
+# Ed25519 (ADR 005). Stdlib has no signing primitives, so this is the one
+# capability that cannot ship in the core - it stays an extra.
+signing = ["cryptography>=42"]
 otel = ["opentelemetry-api>=1.24", "opentelemetry-sdk>=1.24"]
 # openai/anthropic are here so the instrumentation tests run against the real
 # response models rather than hand-rolled fakes. The SDK never requires them.
@@ -31,6 +34,7 @@ dev = [
   "httpx>=0.27",
   "openai>=1.40",
   "anthropic>=0.34",
+  "cryptography>=42",
 ]
 
 [project.scripts]

@@ -153,6 +153,32 @@ class Run:
         totals = dict(self.totals, duration_ms=round((time.monotonic() - self.started) * 1000, 3))
         self.emit(EventType.RUN_END, {"status": status, "totals": totals, **extra})
         self.exporter.close()
+        self._sign()
+
+    def _sign(self) -> None:
+        """Write ``run_<id>.sig`` beside the trace, if a signing key was configured.
+
+        Runs after the exporter is closed, so the signature only ever exists for
+        a trace that is completely on disk. A failure here is reported and
+        swallowed: the run is already over, and a missing sidecar is a far
+        smaller harm than an agent that dies at teardown.
+        """
+        key = self.recorder.signing_key
+        if key is None:
+            return
+        try:
+            from . import signing
+
+            sidecar = signing.sign_head(
+                key,
+                run_id=self.run_id,
+                head_hash=self.chain.head_hash,
+                seq=self.chain.next_seq - 1,
+                events=self.chain.next_seq,
+            )
+            signing.write_sidecar(sidecar, self.exporter.path)
+        except Exception as exc:  # noqa: BLE001 - never surface into the host agent
+            print(f"deposition: could not sign {self.path}: {exc}", file=sys.stderr)
 
 
 class Recorder:
@@ -167,11 +193,21 @@ class Recorder:
         redact: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         instrument: bool = True,
         config: dict[str, Any] | None = None,
+        signing_key: Any | None = None,
     ) -> None:
         self.project = project
         self.directory = directory
         self.token = token
         self.redact = redact
+        # Loaded here, not at first use: a key that cannot be loaded is a
+        # configuration error, and the only honest place to raise is before any
+        # run starts. Downgrading to unsigned traces silently would leave the
+        # user believing in signatures they do not have.
+        self.signing_key = None
+        if signing_key is not None:
+            from .signing import load_key
+
+            self.signing_key = load_key(signing_key)
         self.config = config or {}
         self.instrument = instrument
         self._local = threading.local()
@@ -236,11 +272,18 @@ def init(
     redact: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     instrument: bool = True,
     config: dict[str, Any] | None = None,
+    signing_key: str | os.PathLike[str] | bytes | None = None,
 ) -> Recorder:
     """Configure recording for this process.
 
     ``redact`` is called on every event body before anything is hashed or
     written - the only place to strip PII out of prompts. Use it.
+
+    ``signing_key`` is an Ed25519 private key - a path to a PEM file, the PEM
+    bytes, or a 32-byte raw key - and needs the ``signing`` extra. Each run then
+    writes ``run_<id>.sig`` beside its trace. Read ``docs/decisions/005`` before
+    relying on it: a key stored beside the traces it signs raises the bar, it
+    does not settle the question.
     """
     global _recorder
     _recorder = Recorder(
@@ -250,6 +293,7 @@ def init(
         redact=redact,
         instrument=instrument,
         config=config,
+        signing_key=signing_key,
     )
     if instrument:
         from .instrument import install
