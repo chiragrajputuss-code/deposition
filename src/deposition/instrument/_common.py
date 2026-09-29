@@ -52,13 +52,21 @@ def jsonable(value: Any, _depth: int = 0) -> Any:
     if isinstance(value, (list, tuple, set, frozenset)):
         return [jsonable(v, _depth + 1) for v in value]
 
-    for method in ("model_dump", "dict", "to_dict"):
+    # `parse` comes first: openai's `with_raw_response` hands back an APIResponse
+    # wrapping the real model, and it has none of the dump methods below. Without
+    # this the response records as the string "<APIResponse [200 OK] ...>" - an
+    # event that exists and holds no evidence, with no usage and no cost.
+    # LangChain and CrewAI both call through that path.
+    for method in ("parse", "model_dump", "dict", "to_dict"):
         dump = getattr(value, method, None)
         if callable(dump):
             try:
-                return jsonable(dump(), _depth + 1)
+                unwrapped = dump()
             except Exception:  # noqa: BLE001 - fall through to the next strategy
                 continue
+            if unwrapped is value:  # `parse` can return self; do not recurse forever
+                continue
+            return jsonable(unwrapped, _depth + 1)
     return str(value)
 
 

@@ -504,3 +504,47 @@ def test_jsonable_survives_a_model_dump_that_raises():
             return "<hostile>"
 
     assert _common.jsonable(Hostile()) == "<hostile>"
+
+
+# -- raw-response unwrapping ------------------------------------------------
+
+
+def test_a_raw_response_wrapper_is_unwrapped_into_the_real_payload():
+    """LangChain and CrewAI call `with_raw_response`, which wraps the model.
+
+    Without unwrapping, the event records the wrapper's repr: an llm_call that
+    exists, holds no prompt or completion, and reports no tokens or cost. It
+    looks captured and is not.
+    """
+    from deposition.instrument._common import jsonable
+
+    class Wrapped:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def parse(self):
+            return self._payload
+
+        def __str__(self):  # what used to be recorded
+            return "<APIResponse [200 OK]>"
+
+    class Payload:
+        def model_dump(self):
+            return {"usage": {"total_tokens": 164}, "choices": [{"message": {"content": "hi"}}]}
+
+    recorded = jsonable(Wrapped(Payload()))
+    assert recorded["usage"]["total_tokens"] == 164
+    assert recorded["choices"][0]["message"]["content"] == "hi"
+
+
+def test_an_object_whose_parse_returns_itself_does_not_recurse():
+    from deposition.instrument._common import jsonable
+
+    class SelfParsing:
+        def parse(self):
+            return self
+
+        def __str__(self):
+            return "self-parsing"
+
+    assert jsonable(SelfParsing()) == "self-parsing"
