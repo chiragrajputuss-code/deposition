@@ -156,7 +156,9 @@ In local mode nothing leaves your machine at all.
 
 - [Trace schema v0](docs/decisions/002-schema-v0.md)
 - [Architecture decisions](docs/decisions/)
-- [Examples](examples/)
+- [Examples](examples/) — 13 runnable agents, including a disputed refund, a
+  regulated credit denial, a prompt-injection incident, a multi-agent handoff and
+  a GDPR erasure. All but one run with no API key and no network.
 
 ## License
 
