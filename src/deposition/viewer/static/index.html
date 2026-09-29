@@ -9,6 +9,7 @@
   --bg: #fbfbfa; --panel: #ffffff; --line: #e6e4e0; --ink: #1b1a18;
   --muted: #6f6b66; --faint: #9a958e; --accent: #2f6f5e; --accent-soft: #e8f1ee;
   --ok: #2f6f5e; --bad: #a8352c; --bad-soft: #fbeceb; --warn: #8a6a1f;
+  --warn-soft: #faf3e2;
   --code-bg: #f5f4f1;
   --t-llm: #3d5a99; --t-tool: #7a5195; --t-decision: #b06a20;
   --t-error: #a8352c; --t-retrieval: #2f6f5e; --t-meta: #6f6b66;
@@ -18,6 +19,7 @@
     --bg: #17181a; --panel: #1e2023; --line: #2f3338; --ink: #e8e6e3;
     --muted: #9b9790; --faint: #6f6b66; --accent: #6fbfa4; --accent-soft: #1d2b28;
     --ok: #6fbfa4; --bad: #e0837a; --bad-soft: #2b1e1d; --warn: #d4ae5e;
+    --warn-soft: #2a2416;
     --code-bg: #16181a;
     --t-llm: #8fa8dd; --t-tool: #bf9bd6; --t-decision: #d9a35e;
     --t-error: #e0837a; --t-retrieval: #6fbfa4; --t-meta: #9b9790;
@@ -48,6 +50,28 @@ header {
 .badge.ok { background: var(--accent-soft); color: var(--ok); border-color: var(--ok); }
 .badge.bad { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
 .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+
+/* Three claims, never one. The chain, the signature and the recorder's own
+   count of what it lost answer different questions, and a single green light
+   that blends them is the failure this panel exists to prevent. */
+.claims { display: flex; flex-wrap: wrap; gap: 6px; }
+.claim {
+  display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px;
+  border-radius: 999px; font-size: 12px; border: 1px solid var(--line);
+  background: var(--panel); cursor: help;
+}
+.claim .k { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.claim .v { font-weight: 600; }
+.claim.ok .v { color: var(--ok); }
+.claim.bad .v { color: var(--bad); }
+.claim.warn .v { color: var(--warn); }
+.claim.ok { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.claim.bad { border-color: var(--bad); background: var(--bad-soft); }
+.claim.warn { border-color: color-mix(in srgb, var(--warn) 55%, transparent); background: var(--warn-soft); }
+.claimnote {
+  font-size: 11.5px; color: var(--muted); margin-top: 6px; max-width: 78ch;
+}
 .stat { font-size: 12px; color: var(--muted); }
 .stat b { color: var(--ink); font-weight: 600; }
 
@@ -202,12 +226,67 @@ function renderHeader() {
   if (run.status) bits.push(`status <b>${run.status}</b>`);
   $("#totals").innerHTML = bits.join(" · ");
 
-  const ok = integrity.ok;
-  $("#integrity").innerHTML =
-    `<span class="badge ${ok ? "ok" : "bad"}" title="${
-      ok ? "Hash chain verified end to end" : "This trace was altered after it was written"}">
-      <span class="dot"></span>${ok ? "chain verified" : "chain broken"}
-     </span>`;
+  $("#integrity").innerHTML = renderClaims();
+}
+
+// What this trace supports, as three separate claims.
+//
+// "Verified" has to mean something a reader can act on, so each claim names the
+// question it answers and nothing more. The chain says whether the file was
+// altered after it was written. The signature says who wrote it - and says so
+// only against a key the reader supplied, because a .sig file carries its own
+// public key and whoever rewrites a trace can re-sign it. Completeness is what
+// neither can reach: a chain has no gap when an event never arrived, so the
+// recorder's own counts are the only evidence that anything is missing.
+function renderClaims() {
+  const { integrity, signature, completeness } = TRACE;
+
+  const chain = integrity.ok
+    ? { level: "ok", value: "intact", note: `${integrity.events_checked} events replayed; no edit, gap or reorder` }
+    : { level: "bad", value: "broken", note: integrity.errors[0]?.message || "the chain does not hold" };
+
+  const sig = (() => {
+    const s = signature || {};
+    if (s.status === "verified") return { level: "ok", value: "verified", note: s.message };
+    if (s.status === "unpinned")
+      return { level: "warn", value: "unverified key",
+               note: "signed, but by a key that travelled with the trace. Re-open with --pubkey <key> to check it against the key you expect." };
+    if (s.status === "unsigned")
+      return { level: "warn", value: "unsigned",
+               note: "no .sig file. Anyone holding this file can edit an event and re-seal the chain; only a signature would catch that." };
+    if (s.status === "unavailable")
+      return { level: "warn", value: "uncheckable", note: s.message };
+    return { level: "bad", value: "failed", note: s.message || "the signature does not stand" };
+  })();
+
+  const whole = (() => {
+    const c = completeness || {};
+    if (c.status === "complete") return { level: "ok", value: "no known gaps", note: c.message };
+    if (c.status === "inferred") return { level: "warn", value: `${c.adopted} inferred`, note: c.message };
+    if (c.status === "lossy") return { level: "bad", value: `${c.dropped} dropped`, note: c.message };
+    return { level: "bad", value: "truncated", note: c.message };
+  })();
+
+  const claims = [
+    ["Not altered", chain],
+    ["Authorship", sig],
+    ["Completeness", whole],
+  ];
+
+  const worst = claims.some(([, c]) => c.level === "bad") ? "bad"
+    : claims.some(([, c]) => c.level === "warn") ? "warn" : "ok";
+  const summary = {
+    ok: "This trace can be shown to someone who does not trust you.",
+    warn: "This trace is intact, but it does not yet prove who wrote it or that nothing is missing.",
+    bad: "This trace is not evidence of what happened.",
+  }[worst];
+
+  return `<div class="claims">${claims.map(([label, c]) => `
+      <span class="claim ${c.level}" title="${escapeHtml(c.note)}">
+        <span class="k">${label}</span><span class="v">${escapeHtml(c.value)}</span>
+      </span>`).join("")}
+    </div>
+    <div class="claimnote"><b>${escapeHtml(summary)}</b> ${escapeHtml(claims.find(([, c]) => c.level === worst)[1].note)}</div>`;
 }
 
 function renderTimeline() {

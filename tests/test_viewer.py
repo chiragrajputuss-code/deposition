@@ -163,3 +163,128 @@ def test_resolve_blob_refs_inlines_stored_content(trace):
 def test_resolve_blob_refs_leaves_a_missing_blob_as_a_reference(trace):
     ref = blob_ref("d" * 64, 15)
     assert resolve_blob_refs({"prompt": ref}, trace) == {"prompt": ref}
+
+
+# -- the three claims -------------------------------------------------------
+#
+# The viewer used to answer "can this be trusted?" with one badge driven only by
+# the hash chain. Three separate things were being blended, and a trace could be
+# re-sealed, incomplete, or unsigned and still show green.
+
+
+def sign_beside(path, key):
+    from deposition.chain import verify_file
+    from deposition.signing import sign_head, write_sidecar
+
+    result = verify_file(path)
+    write_sidecar(
+        sign_head(
+            key,
+            run_id=result.run_id,
+            head_hash=result.head_hash,
+            seq=result.events_checked - 1,
+            events=result.events_checked,
+        ),
+        path,
+    )
+
+
+def reseal(path, seq, key, value):
+    """Edit an event and rebuild the chain, exactly as a holder of the file could."""
+    events = [json.loads(line) for line in path.read_text("utf-8").splitlines() if line.strip()]
+    builder = ChainBuilder(events[0]["run_id"])
+    rebuilt = []
+    for event in events:
+        body = dict(event["body"])
+        if event["seq"] == seq:
+            body[key] = value
+        rebuilt.append(
+            builder.append(event["type"], body, caused_by=event.get("caused_by"), ts=event["ts"])
+        )
+    path.write_text("".join(canonical_json(e) + "\n" for e in rebuilt), encoding="utf-8")
+
+
+def test_an_unsigned_trace_reports_its_authorship_as_unsigned(trace):
+    claims = load_trace(trace)
+    assert claims["integrity"]["ok"]
+    assert claims["signature"]["status"] == "unsigned"
+
+
+def test_a_signed_trace_without_a_pinned_key_is_not_reported_as_verified(trace):
+    from deposition.signing import generate_key
+
+    sign_beside(trace, generate_key())
+    signature = load_trace(trace)["signature"]
+    assert signature["status"] == "unpinned"
+    assert signature["ok"] is False
+
+
+def test_a_signed_trace_is_verified_against_the_pinned_key(trace):
+    from deposition.signing import generate_key
+
+    key = generate_key()
+    sign_beside(trace, key)
+    assert load_trace(trace, public_key=key.public_hex)["signature"]["ok"]
+
+
+def test_a_resealed_trace_shows_an_intact_chain_and_a_failed_signature(trace):
+    """The case a single badge got wrong: the chain holds and the record is false."""
+    from deposition.signing import generate_key
+
+    key = generate_key()
+    sign_beside(trace, key)
+    reseal(trace, 2, "tool", "wire_transfer")
+
+    claims = load_trace(trace, public_key=key.public_hex)
+    assert claims["integrity"]["ok"], "re-sealing produces a clean chain - that is the point"
+    assert claims["signature"]["status"] == "head_mismatch"
+    assert claims["signature"]["ok"] is False
+
+
+def test_completeness_reports_no_known_gaps_for_an_ordinary_run(trace):
+    assert load_trace(trace)["completeness"]["status"] == "complete"
+
+
+def test_completeness_reports_dropped_events_the_recorder_admits_to(trace, tmp_path):
+    builder = ChainBuilder("run_lossy")
+    events = [
+        builder.append(EventType.RUN_START, {"agent": "a"}, ts=TS),
+        builder.append(
+            EventType.RUN_END,
+            {"status": "ok", "totals": {"steps": 1, "dropped": 3, "adopted": 0}},
+            ts=TS,
+        ),
+    ]
+    path = tmp_path / "run_lossy.jsonl"
+    path.write_text("".join(canonical_json(e) + "\n" for e in events), encoding="utf-8")
+
+    completeness = load_trace(path)["completeness"]
+    assert completeness["status"] == "lossy"
+    assert completeness["dropped"] == 3
+    assert completeness["ok"] is False
+
+
+def test_completeness_flags_events_that_were_attributed_by_elimination(trace, tmp_path):
+    builder = ChainBuilder("run_guessed")
+    events = [
+        builder.append(EventType.RUN_START, {"agent": "a"}, ts=TS),
+        builder.append(
+            EventType.RUN_END,
+            {"status": "ok", "totals": {"steps": 1, "dropped": 0, "adopted": 2}},
+            ts=TS,
+        ),
+    ]
+    path = tmp_path / "run_guessed.jsonl"
+    path.write_text("".join(canonical_json(e) + "\n" for e in events), encoding="utf-8")
+    assert load_trace(path)["completeness"]["status"] == "inferred"
+
+
+def test_a_run_with_no_run_end_is_reported_as_truncated(trace):
+    lines = trace.read_text("utf-8").splitlines()[:-1]
+    trace.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert load_trace(trace)["completeness"]["status"] == "truncated"
+
+
+def test_the_api_serves_all_three_claims(client):
+    payload = client.get("/api/trace").json()
+    assert {"integrity", "signature", "completeness"} <= set(payload)

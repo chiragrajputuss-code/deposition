@@ -24,11 +24,24 @@ __all__ = ["load_trace", "create_app", "serve"]
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-def load_trace(path: str | os.PathLike[str]) -> dict[str, Any]:
-    """Read a trace and verify it in one pass.
+def load_trace(
+    path: str | os.PathLike[str], *, public_key: str | None = None
+) -> dict[str, Any]:
+    """Read a trace and establish what can be claimed about it, in one pass.
 
-    The viewer always shows the integrity verdict, including for a broken trace:
-    a tampered run is exactly the run you most want to look at.
+    Three separate questions, never collapsed into one badge:
+
+    * **Integrity** - does the chain hold? Catches an edit, a deletion, a reorder.
+    * **Authorship** - is it signed, and by the key the viewer expected? A chain
+      alone can be edited and re-sealed by whoever holds the file; only a
+      signature over a key they do not have catches that.
+    * **Completeness** - did anything fail to reach the record? A chain proves
+      nothing was removed after writing. It cannot prove anything was written,
+      so the recorder's own counts of dropped and adopted events are the only
+      evidence there is, and they belong on screen.
+
+    The viewer always shows all three, including for a broken trace: a tampered
+    run is exactly the run you most want to look at.
     """
     pairs = list(read_jsonl(path))
     events = [payload for _, payload in pairs]
@@ -38,11 +51,14 @@ def load_trace(path: str | os.PathLike[str]) -> dict[str, Any]:
     run_start = next((e for e in valid if e.get("type") == "run_start"), None)
     run_end = next((e for e in valid if e.get("type") == "run_end"), None)
 
+    signature = _signature_status(path, result, public_key)
     return {
         "trace": {
             "path": str(path),
             "name": Path(path).name,
         },
+        "signature": signature,
+        "completeness": _completeness(valid, run_end),
         "run": {
             "run_id": result.run_id,
             "agent": (run_start or {}).get("body", {}).get("agent"),
@@ -66,11 +82,76 @@ def load_trace(path: str | os.PathLike[str]) -> dict[str, Any]:
     }
 
 
+def _signature_status(
+    path: str | os.PathLike[str], result: Any, public_key: str | None
+) -> dict[str, Any]:
+    """Whether a signature stands, in the terms the UI reports."""
+    from .. import signing
+
+    try:
+        sidecar = signing.read_sidecar(path)
+    except signing.SignatureError as exc:
+        return {"status": signing.MALFORMED, "message": str(exc), "ok": False, "pinned": False}
+
+    verdict = signing.verify_sidecar(
+        sidecar,
+        head_hash=result.head_hash,
+        run_id=result.run_id,
+        expected_public_key=public_key,
+    )
+    return {
+        "status": verdict.status,
+        "message": verdict.message,
+        "ok": verdict.ok,
+        "pinned": public_key is not None,
+        "public_key": verdict.public_key,
+        "signed_at": verdict.signed_at,
+    }
+
+
+def _completeness(events: list[dict[str, Any]], run_end: dict[str, Any] | None) -> dict[str, Any]:
+    """What the recorder itself admits it lost or guessed.
+
+    The chain cannot speak to this. If an event never reached the recorder there
+    is no gap in the chain to find, so these counts - which the recorder writes
+    into its own last event - are the only signal a reader has.
+    """
+    totals = (run_end or {}).get("body", {}).get("totals") or {}
+    dropped = int(totals.get("dropped") or 0)
+    adopted = int(totals.get("adopted") or 0)
+    ended = run_end is not None
+
+    if not ended:
+        status, message = "truncated", (
+            "no run_end - the run was interrupted or the recorder never finished writing"
+        )
+    elif dropped:
+        status, message = "lossy", (
+            f"{dropped} event(s) were dropped before reaching the trace"
+        )
+    elif adopted:
+        status, message = "inferred", (
+            f"{adopted} event(s) arrived with no run context and were attributed by "
+            "elimination, not by observation"
+        )
+    else:
+        status, message = "complete", "the recorder reports no dropped or inferred events"
+
+    return {
+        "status": status,
+        "message": message,
+        "ok": status == "complete",
+        "dropped": dropped,
+        "adopted": adopted,
+        "events": len(events),
+    }
+
+
 def _blob_path(trace_path: str | os.PathLike[str], digest: str) -> Path:
     return Path(trace_path).parent / "blobs" / digest
 
 
-def create_app(trace_path: str | os.PathLike[str]):
+def create_app(trace_path: str | os.PathLike[str], *, public_key: str | None = None):
     """Build the FastAPI app for one trace file."""
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
@@ -82,7 +163,7 @@ def create_app(trace_path: str | os.PathLike[str]):
     def api_trace() -> JSONResponse:
         # Re-read on every request: a run still being written should be
         # refreshable without restarting the viewer.
-        return JSONResponse(load_trace(trace_path))
+        return JSONResponse(load_trace(trace_path, public_key=public_key))
 
     @app.get("/api/blob/{digest}")
     def api_blob(digest: str) -> PlainTextResponse:
@@ -106,11 +187,12 @@ def serve(
     host: str = "127.0.0.1",
     port: int = 7878,
     open_browser: bool = True,
+    public_key: str | None = None,
 ) -> int:
     """Run the viewer until interrupted. Returns a process exit code."""
     import uvicorn
 
-    app = create_app(trace_path)
+    app = create_app(trace_path, public_key=public_key)
     url = f"http://{host}:{port}"
 
     print(f"deposition: serving replay viewer on {url}")

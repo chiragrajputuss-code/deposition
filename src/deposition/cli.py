@@ -223,7 +223,20 @@ def cmd_view(args: argparse.Namespace) -> int:
             "  Install them with:  pip install 'deposition[viewer]'"
         )
 
-    return serve(args.trace, host=args.host, port=args.port, open_browser=not args.no_browser)
+    pinned = None
+    if args.pubkey:
+        try:
+            pinned = signing.load_public_key(args.pubkey)
+        except SignatureError as exc:
+            _die(str(exc))
+
+    return serve(
+        args.trace,
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_browser,
+        public_key=pinned,
+    )
 
 
 # -- diff -------------------------------------------------------------------
@@ -314,6 +327,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_view.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"default {DEFAULT_PORT}")
     p_view.add_argument("--host", default="127.0.0.1", help="default 127.0.0.1 (localhost only)")
     p_view.add_argument("--no-browser", action="store_true", help="do not open a browser")
+    p_view.add_argument(
+        "--pubkey",
+        metavar="KEY",
+        help="public key the signature must match: 64 hex characters or a file holding them",
+    )
     p_view.set_defaults(func=cmd_view)
 
     p_verify = sub.add_parser("verify", help="check a trace's hash chain")
