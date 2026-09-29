@@ -20,6 +20,7 @@ Two promises hold this SDK together:
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import functools
 import os
 import platform
@@ -59,6 +60,21 @@ __all__ = [
 
 _ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+#: The runs open on this execution context, innermost last.
+#:
+#: A ``ContextVar`` rather than a ``threading.local``, and a stack rather than a
+#: single slot. The single slot lost events two ways: a nested ``@record``
+#: cleared it on exit, so the outer run silently stopped recording, and anything
+#: running on another thread never saw it at all. Both produced a short trace
+#: that still sealed, still verified and still reported ``status: ok`` - the one
+#: failure a verbatim recorder cannot have.
+#:
+#: ``ContextVar`` also propagates into asyncio tasks for free, which covers every
+#: framework that awaits its model calls.
+_RUN_STACK: contextvars.ContextVar[tuple[Run, ...]] = contextvars.ContextVar(
+    "deposition_run_stack", default=()
+)
+
 
 def _new_run_id() -> str:
     return "run_" + "".join(secrets.choice(_ALPHABET) for _ in range(6))
@@ -85,6 +101,10 @@ class Run:
         self.exporter = JsonlExporter(run_id, recorder.directory)
         self.totals = {"steps": 0, "tokens": 0, "cost_usd": 0.0}
         self.ended = False
+        #: Token for the context stack entry this run pushed, reset when it ends.
+        self.context_token: contextvars.Token | None = None
+        #: Events attributed to this run from a context that did not name it.
+        self.adopted = 0
         self._lock = threading.Lock()
         #: tool name -> seq of the llm_call whose response asked for it. Filled by
         #: auto-instrumentation and used to record observed causal edges.
@@ -150,7 +170,16 @@ class Run:
         if self.ended:
             return
         self.ended = True
-        totals = dict(self.totals, duration_ms=round((time.monotonic() - self.started) * 1000, 3))
+        # `dropped` and `adopted` belong in the record itself. A trace that is
+        # missing events, or that guessed where some belonged, has to say so -
+        # otherwise it seals and verifies as though it were complete, which is
+        # exactly the false confidence the chain is supposed to prevent.
+        totals = dict(
+            self.totals,
+            duration_ms=round((time.monotonic() - self.started) * 1000, 3),
+            dropped=self.exporter.dropped,
+            adopted=self.adopted,
+        )
         self.emit(EventType.RUN_END, {"status": status, "totals": totals, **extra})
         self.exporter.close()
         self._sign()
@@ -210,8 +239,9 @@ class Recorder:
             self.signing_key = load_key(signing_key)
         self.config = config or {}
         self.instrument = instrument
-        self._local = threading.local()
         self._runs: list[Run] = []
+        #: Events attributed to a run found outside this context - see `run`.
+        self.adopted = 0
 
         if token:
             # Hosted mode is Phase 2. Say so rather than silently recording locally
@@ -226,11 +256,36 @@ class Recorder:
 
     @property
     def run(self) -> Run | None:
-        return getattr(self._local, "run", None)
+        """The run this event belongs to, or ``None``.
+
+        The context stack answers this for ordinary code and for asyncio. It
+        does not answer it on a worker thread, because a new thread starts with
+        a fresh context - and agent frameworks routinely run their model calls
+        on one (CrewAI uses an event-loop thread; LangGraph and others use
+        pools).
+
+        So when the context is empty and exactly one run is open in this
+        process, the event is attributed to that run and counted in ``adopted``.
+        With one run in flight there is only one answer that can be right, and
+        recording it beats dropping it silently. With two or more open runs
+        there is no honest answer, so the event is dropped and counted - a
+        misattributed event in an evidentiary record is worse than a missing
+        one, because nothing downstream can tell it was a guess.
+        """
+        for run in reversed(_RUN_STACK.get()):
+            if run.recorder is self and not run.ended:
+                return run
+
+        live = [run for run in self._runs if not run.ended]
+        if len(live) == 1:
+            self.adopted += 1
+            live[0].adopted += 1
+            return live[0]
+        return None
 
     def start_run(self, agent: str) -> Run:
         run = Run(self, _new_run_id(), agent)
-        self._local.run = run
+        run.context_token = _RUN_STACK.set(_RUN_STACK.get() + (run,))
         self._runs.append(run)
         run.emit(
             EventType.RUN_START,
@@ -246,8 +301,19 @@ class Recorder:
 
     def finish_run(self, run: Run, status: str = "ok") -> None:
         run.end(status)
-        if getattr(self._local, "run", None) is run:
-            self._local.run = None
+        self._pop(run)
+
+    @staticmethod
+    def _pop(run: Run) -> None:
+        token, run.context_token = run.context_token, None
+        if token is None:
+            return
+        try:
+            _RUN_STACK.reset(token)
+        except ValueError:
+            # The run was started in a different context from the one finishing
+            # it. Drop it from this context's stack instead of resetting.
+            _RUN_STACK.set(tuple(open_run for open_run in _RUN_STACK.get() if open_run is not run))
 
     def flush(self, timeout: float = 5.0) -> None:
         for run in self._runs:
@@ -257,6 +323,7 @@ class Recorder:
         for run in self._runs:
             if not run.ended:
                 run.end("interrupted")
+            self._pop(run)
             run.exporter.close(timeout)
         self._runs.clear()
 
