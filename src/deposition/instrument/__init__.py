@@ -1,8 +1,10 @@
 """Auto-instrumentation: patch the LLM clients the user already has.
 
-v0 covers the OpenAI and Anthropic Python SDKs only. LangGraph and CrewAI
-adapters are Phase 4 - adapters chase frameworks, and frameworks change faster
-than a solo developer can follow.
+Two layers. The provider adapters wrap the OpenAI and Anthropic SDKs, which is
+how the model calls get recorded whatever framework sits on top. The tool adapter
+wraps the one method each framework funnels tool execution through, because
+without it a framework run records model turns and nothing in between, and the
+causal graph is empty for the users most likely to try it.
 
 Patching is best-effort: if a client is not installed, or its internals moved,
 instrumentation silently stays off rather than breaking the host agent.
@@ -14,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from . import anthropic as _anthropic
 from . import openai as _openai
+from . import tools as _tools
 from ._common import revert_all
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -39,6 +42,10 @@ def install(recorder: Recorder) -> list[str]:
                 patched.append(name)
         except Exception:  # noqa: BLE001 - instrumentation is never worth a crash
             continue
+    try:
+        patched.extend(_tools.install(recorder))
+    except Exception:  # noqa: BLE001
+        pass
     return patched
 
 
