@@ -30,7 +30,7 @@ from ._common import jsonable
 if TYPE_CHECKING:  # pragma: no cover
     from .. import Recorder
 
-__all__ = ["install", "installed_frameworks"]
+__all__ = ["install", "installed_frameworks", "reset"]
 
 _frameworks: list[str] = []
 
@@ -46,6 +46,11 @@ _depth: contextvars.ContextVar[int] = contextvars.ContextVar("deposition_tool_de
 
 def installed_frameworks() -> list[str]:
     return list(_frameworks)
+
+
+def reset() -> None:
+    """Forget what was patched, so a later ``init()`` patches again."""
+    _frameworks.clear()
 
 
 def _emit(

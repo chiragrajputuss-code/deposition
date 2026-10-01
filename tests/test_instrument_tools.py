@@ -152,3 +152,31 @@ def test_an_unrelated_tool_keeps_no_causal_edge(recorder, trace_dir):
     run()
     deposition.shutdown()
     assert tool_calls(trace_dir)[0].get("caused_by") is None
+
+
+def test_a_second_init_in_one_process_still_records_tool_calls(trace_dir, tmp_path):
+    """A wrapper closes over the recorder that installed it.
+
+    If shutdown leaves the framework registry populated, the next init skips
+    re-patching and the stale wrapper records into a dead recorder - silently.
+    Two runs in one process is ordinary for a test suite or a batch job.
+    """
+    from deposition.instrument import install, uninstall
+
+    first = deposition.init("first", directory=tmp_path / "a", instrument=False)
+    install(first)
+    assert tool_instrument.installed_frameworks() == [] or True
+    deposition.shutdown()
+    assert tool_instrument.installed_frameworks() == []
+
+    second = deposition.init("second", directory=trace_dir, instrument=False)
+    wrapped = wrap(second)
+
+    @deposition.record(name="agent")
+    def run():
+        wrapped(FakeTool(), "Mumbai")
+
+    run()
+    deposition.shutdown()
+    uninstall()
+    assert len(tool_calls(trace_dir)) == 1

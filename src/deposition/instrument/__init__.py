@@ -50,9 +50,18 @@ def install(recorder: Recorder) -> list[str]:
 
 
 def uninstall() -> None:
-    """Restore every patched method. Called by ``deposition.shutdown()``."""
+    """Restore every patched method. Called by ``deposition.shutdown()``.
+
+    Both registries have to be cleared, not just the provider one. A wrapper
+    closes over the recorder that installed it, so a registry that still claims
+    a framework is patched after shutdown means the next ``init()`` skips it and
+    the stale wrapper keeps recording into the previous recorder - which records
+    nothing, silently. Two runs in one process is a normal shape for a test
+    suite or a batch job.
+    """
     revert_all()
     _installed.clear()
+    _tools.reset()
 
 
 def installed() -> list[str]:
