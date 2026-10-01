@@ -10,8 +10,10 @@ Every framework funnels tool execution through one method, so one patch per
 framework covers every tool the user wrote, with no change to their code:
 
 * LangChain / LangGraph - ``BaseTool.run`` and ``BaseTool.arun``
-* CrewAI - ``BaseTool.run``
+* CrewAI - ``Tool.run`` and ``CrewStructuredTool.invoke``
 * OpenAI Agents SDK - the callable a ``FunctionTool`` holds
+* Pydantic AI - ``ToolManager.execute_tool_call``
+* AutoGen - ``BaseTool.run_json``
 
 No ``caused_by`` is passed. The recorder links the tool call to the model turn
 that named this tool, so the edge in the trace is one it observed rather than
@@ -246,10 +248,73 @@ def _install_agents_sdk(recorder: Recorder) -> bool:
     return _common.patch(FunctionTool, "__init__", factory)
 
 
+def _install_pydantic_ai(recorder: Recorder) -> bool:
+    """Pydantic AI routes every execution through one manager method.
+
+    ``execute_tool_call``, not the more inviting ``handle_call`` - measured by
+    spying on both; only the former fires during a run. The tool's name travels
+    in the *call argument*, not on the receiver, so the generic wrappers (which
+    read ``self.name``) do not fit here.
+    """
+    try:
+        from pydantic_ai.tool_manager import ToolManager
+    except ImportError:
+        return False
+
+    def factory(original: Any) -> Any:
+        async def wrapper(self: Any, call: Any, *args: Any, **kwargs: Any) -> Any:
+            if _depth.get():
+                return await original(self, call, *args, **kwargs)
+            token = _depth.set(1)
+            started = time.monotonic()
+            # A ValidatedToolCall wraps the ToolCallPart; older paths pass the
+            # part itself. Look through one level rather than guessing wrong.
+            part = getattr(call, "call", None) or call
+            tool = str(getattr(part, "tool_name", None) or "tool")
+            arguments = getattr(part, "args", None)
+            try:
+                result = await original(self, call, *args, **kwargs)
+            except BaseException as exc:
+                _depth.reset(token)
+                _common._safely(
+                    _emit,
+                    recorder,
+                    tool=tool,
+                    arguments=arguments,
+                    started=started,
+                    error=exc,
+                )
+                raise
+            _depth.reset(token)
+            _common._safely(
+                _emit,
+                recorder,
+                tool=tool,
+                arguments=arguments,
+                started=started,
+                result=result,
+            )
+            return result
+
+        return wrapper
+
+    return _common.patch(ToolManager, "execute_tool_call", factory)
+
+
+def _install_autogen(recorder: Recorder) -> bool:
+    try:
+        from autogen_core.tools import BaseTool
+    except ImportError:
+        return False
+    return _common.patch(BaseTool, "run_json", lambda o: _wrap_async(recorder, o, _tool_name))
+
+
 _ADAPTERS = (
     ("langchain", _install_langchain),
     ("crewai", _install_crewai),
     ("openai-agents", _install_agents_sdk),
+    ("pydantic-ai", _install_pydantic_ai),
+    ("autogen", _install_autogen),
 )
 
 
