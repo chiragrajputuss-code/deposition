@@ -90,6 +90,17 @@ main { flex: 1; display: grid; grid-template-columns: 340px 1fr; min-height: 0; 
 .ev.sel { background: var(--accent-soft); border-left-color: var(--accent); }
 .ev.caused { border-left-color: var(--warn); }
 .ev .seq { color: var(--faint); font-size: 11px; text-align: right; }
+.ev .ms { white-space: nowrap; }
+.ev .ctx { color: var(--faint); font-size: 10.5px; }
+.ev .ctx b { color: var(--muted); font-weight: 600; }
+.facts {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 0 12px;
+  padding: 9px 12px; background: var(--code-bg); border: 1px solid var(--line);
+  border-radius: 6px; font-size: 12px;
+}
+.facts .f { white-space: nowrap; }
+.facts .f span { color: var(--muted); margin-right: 5px; font-size: 11px; }
+.facts .f b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .ev .label { min-width: 0; }
 .ev .type { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
 .ev .name { display: block; color: var(--muted); font-size: 12.5px; overflow: hidden;
@@ -312,8 +323,11 @@ function renderTimeline() {
         <div class="type t-${ev.type}">${ev.type.replace("_", " ")}</div>
         <span class="name">${escapeHtml(stepName(ev))}</span>
       </div>
-      <div class="ms">${ev.body?.latency_ms != null
-        ? Math.round(ev.body.latency_ms) + "ms" : ""}</div>
+      <div class="ms">${ev.body?.context_tokens
+        ? `<span class="ctx"><b>${(ev.body.context_tokens / 1000).toFixed(1)}k</b>${
+            ev.body.context_delta ? " +" + ((ev.body.context_delta >= 1000)
+              ? (ev.body.context_delta / 1000).toFixed(1) + "k" : ev.body.context_delta) : ""}</span>`
+        : ev.body?.latency_ms != null ? Math.round(ev.body.latency_ms) + "ms" : ""}</div>
     </div>`).join("");
   const sel = $("#timeline .ev.sel");
   if (sel) sel.scrollIntoView({ block: "nearest" });
@@ -337,6 +351,7 @@ function renderDetail() {
       <h2 class="t-${ev.type}">${ev.type.replace("_", " ")} ${escapeHtml(stepName(ev))}</h2>
       <span class="ts mono">seq ${ev.seq} · ${escapeHtml(ev.ts)}</span>
     </div>
+    ${renderFacts(ev)}
     <div class="tabs">${tabs.map(([name], i) =>
       `<button class="tab ${i === TAB ? "on" : ""}" data-tab="${i}">${name}</button>`).join("")}</div>
     <pre>${escapeHtml(fmt(shown))}</pre>
@@ -348,6 +363,51 @@ function renderDetail() {
       <b>hash</b> ${escapeHtml(ev.hash || "")}<br>
       <b>prev</b> ${escapeHtml(ev.prev_hash || "")}
     </div>`;
+}
+
+// The numbers someone came to check, pulled out of the JSON and put first.
+// The raw body stays below - the strip is a reading aid, never a substitute.
+function renderFacts(ev) {
+  const b = ev.body || {};
+  const n = (x) => (x >= 10000 ? (x / 1000).toFixed(1) + "k" : String(x));
+  const facts = [];
+  const add = (label, value) => { if (value !== undefined && value !== null && value !== "") facts.push([label, value]); };
+
+  if (ev.type === "llm_call") {
+    add("model", b["gen_ai.request.model"] || b.provider);
+    add("tokens", b.usage?.total_tokens != null ? n(b.usage.total_tokens) : null);
+    if (b.context_tokens != null) {
+      add("context", n(b.context_tokens));
+      add("grew by", (b.context_delta >= 0 ? "+" : "") + n(b.context_delta || 0));
+    }
+    if (b.cost_usd != null) add("cost", "$" + Number(b.cost_usd).toFixed(4));
+    if (b.latency_ms != null) add("latency", Math.round(b.latency_ms) + "ms");
+    add("stop", b.stop_reason);
+  } else if (ev.type === "tool_call") {
+    add("tool", b.tool);
+    if (b.latency_ms != null) add("latency", Math.round(b.latency_ms) + "ms");
+    if (b.error) add("failed", b.error.exception || "error");
+    if (b.mutates_environment) add("mutates", "yes");
+  } else if (ev.type === "run_end") {
+    const t = b.totals || {};
+    add("status", b.status);
+    add("steps", t.steps);
+    if (t.tokens != null) add("tokens", n(t.tokens));
+    if (t.cost_usd) add("cost", "$" + Number(t.cost_usd).toFixed(4));
+    add("dropped", t.dropped);
+    add("inferred", t.adopted);
+  } else if (ev.type === "run_start") {
+    add("agent", b.agent);
+    add("project", b.project);
+    if (b.mandate) add("mandate", "declared");
+  } else if (ev.type === "retrieval") {
+    add("source", b.source);
+    add("docs", Array.isArray(b.doc_ids) ? b.doc_ids.length : null);
+  }
+
+  if (!facts.length) return "";
+  return `<div class="facts">${facts.map(([k, v]) =>
+    `<span class="f"><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></span>`).join("")}</div>`;
 }
 
 // The causal chain is the differentiator: walk caused_by backwards so "why did
