@@ -223,8 +223,10 @@ class Recorder:
         instrument: bool = True,
         config: dict[str, Any] | None = None,
         signing_key: Any | None = None,
+        mandate: dict[str, Any] | None = None,
     ) -> None:
         self.project = project
+        self.mandate = mandate
         self.directory = directory
         self.token = token
         self.redact = redact
@@ -287,16 +289,18 @@ class Recorder:
         run = Run(self, _new_run_id(), agent)
         run.context_token = _RUN_STACK.set(_RUN_STACK.get() + (run,))
         self._runs.append(run)
-        run.emit(
-            EventType.RUN_START,
-            {
-                "agent": agent,
-                "project": self.project,
-                "sdk_version": __version__,
-                "env": _env_fingerprint(),
-                "config": self.config,
-            },
-        )
+        header: dict[str, Any] = {
+            "agent": agent,
+            "project": self.project,
+            "sdk_version": __version__,
+            "env": _env_fingerprint(),
+            "config": self.config,
+        }
+        if self.mandate is not None:
+            # Inside the hashed body on purpose: the policy the run is judged
+            # by seals together with the conduct (ADR 010).
+            header["mandate"] = self.mandate
+        run.emit(EventType.RUN_START, header)
         return run
 
     def finish_run(self, run: Run, status: str = "ok") -> None:
@@ -340,11 +344,16 @@ def init(
     instrument: bool = True,
     config: dict[str, Any] | None = None,
     signing_key: str | os.PathLike[str] | bytes | None = None,
+    mandate: dict[str, Any] | None = None,
 ) -> Recorder:
     """Configure recording for this process.
 
     ``redact`` is called on every event body before anything is hashed or
     written - the only place to strip PII out of prompts. Use it.
+
+    ``mandate`` is what this run is *allowed* to do (ADR 010) - recorded
+    verbatim inside ``run_start`` so policy and conduct seal together, and
+    checked afterwards with ``deposition audit``.
 
     ``signing_key`` is an Ed25519 private key - a path to a PEM file, the PEM
     bytes, or a 32-byte raw key - and needs the ``signing`` extra. Each run then
@@ -361,6 +370,7 @@ def init(
         instrument=instrument,
         config=config,
         signing_key=signing_key,
+        mandate=mandate,
     )
     if instrument:
         from .instrument import install

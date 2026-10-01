@@ -22,10 +22,11 @@ src/deposition/
   schema.py        trace schema v0: dataclasses, canonical JSON, validation
   chain.py         hash-chain build + verify
   signing.py       Ed25519 signatures over the head hash ([signing] extra)
+  mandate.py       audit a run against the authority recorded in run_start
   instrument/      auto-patching: openai.py, anthropic.py
   exporters/       jsonl.py (local), http.py (hosted, Phase 2), otel.py (Phase 4)
   viewer/          FastAPI app + pre-built static UI
-  cli.py           deposition view / verify / diff / keygen
+  cli.py           deposition view / verify / audit / diff / keygen
 tests/             chain + schema tests are non-negotiable
 examples/          3 runnable example agents
 docs/decisions/    ADRs

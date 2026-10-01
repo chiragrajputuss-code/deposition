@@ -1,4 +1,4 @@
-"""``deposition`` command line: view, verify, diff, keygen.
+"""``deposition`` command line: view, verify, audit, diff, keygen.
 
 Stdlib only. ``verify`` is the one that has to be beyond reproach - it is the
 command a user runs when they need to show someone else that a trace was not
@@ -26,6 +26,7 @@ from typing import Any
 
 from . import __version__, signing
 from .chain import ChainResult, read_jsonl, verify
+from .mandate import audit as audit_mandate
 from .schema import SCHEMA_VERSION, is_blob_ref
 from .signing import SignatureError, SignatureResult
 
@@ -209,6 +210,45 @@ def cmd_keygen(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# -- audit ------------------------------------------------------------------
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    events = _load(args.trace)
+
+    # A broken chain is not auditable: the verdict is about the record, and
+    # this record is not one.
+    chain = verify(events)
+    if not chain.ok:
+        print(f"{chain.summary()}  [{args.trace}]")
+        print("  Cannot audit: the chain does not hold, so these events are not the record.")
+        return EXIT_BROKEN
+
+    result = audit_mandate(events)
+    print(f"{result.summary()}  [{args.trace}]")
+
+    if result.mandate is None:
+        print("  Record a mandate with deposition.init(mandate={...}) to make runs auditable.")
+        return EXIT_USAGE
+
+    if result.mandate.get("issuer"):
+        print(f"  issued by: {result.mandate['issuer']}")
+    for violation in result.violations:
+        print(f"  !! {violation}")
+    if result.checked:
+        print(f"  checked: {', '.join(sorted(result.checked))}")
+    if result.unchecked:
+        # Never silent about blind spots: an audit that skips a rule quietly is
+        # the overclaim this product exists to end.
+        print(f"  NOT checkable by this version: {', '.join(sorted(result.unchecked))}")
+    if result.dropped:
+        print(
+            f"  {result.dropped} event(s) were dropped before reaching the trace - "
+            "compliance cannot be attested on a record that admits gaps."
+        )
+    return EXIT_OK if result.attestable else EXIT_BROKEN
+
+
 # -- view -------------------------------------------------------------------
 
 
@@ -356,6 +396,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="where to write the private key (default: ./deposition-signing-key.pem)",
     )
     p_keygen.set_defaults(func=cmd_keygen)
+
+    p_audit = sub.add_parser("audit", help="check a trace against the mandate it carries")
+    p_audit.add_argument("trace", help="a .jsonl trace file whose run_start records a mandate")
+    p_audit.set_defaults(func=cmd_audit)
 
     p_diff = sub.add_parser("diff", help="compare the steps of two runs")
     p_diff.add_argument("left", help="baseline trace")

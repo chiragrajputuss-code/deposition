@@ -59,6 +59,7 @@ def load_trace(
         },
         "signature": signature,
         "completeness": _completeness(valid, run_end),
+        "authority": _authority(valid),
         "run": {
             "run_id": result.run_id,
             "agent": (run_start or {}).get("body", {}).get("agent"),
@@ -145,6 +146,27 @@ def _completeness(events: list[dict[str, Any]], run_end: dict[str, Any] | None) 
         "adopted": adopted,
         "events": len(events),
     }
+
+
+def _authority(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Was the run within the mandate it carries? Absence is neutral, not a
+    defect - most runs will not carry one."""
+    from ..mandate import audit
+
+    result = audit(events)
+    if result.mandate is None:
+        return {"status": "none", "ok": None, "message": "no mandate declared for this run"}
+    if result.violations:
+        return {
+            "status": "violations",
+            "ok": False,
+            "count": len(result.violations),
+            "message": "; ".join(str(v) for v in result.violations[:3]),
+        }
+    if not result.attestable:
+        return {"status": "not_attestable", "ok": False, "message": result.summary()}
+    checked = ", ".join(sorted(result.checked)) or "nothing enforceable"
+    return {"status": "ok", "ok": True, "message": f"within mandate ({checked} checked)"}
 
 
 def _blob_path(trace_path: str | os.PathLike[str], digest: str) -> Path:

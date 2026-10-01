@@ -267,14 +267,27 @@ function renderClaims() {
     return { level: "bad", value: "truncated", note: c.message };
   })();
 
+  const authority = (() => {
+    const a = TRACE.authority || { status: "none" };
+    if (a.status === "ok") return { level: "ok", value: "within mandate", note: a.message };
+    if (a.status === "violations")
+      return { level: "bad", value: `${a.count} violation${a.count === 1 ? "" : "s"}`, note: a.message };
+    if (a.status === "not_attestable")
+      return { level: "warn", value: "not attestable", note: a.message };
+    // No mandate is the normal case, never an alarm.
+    return { level: "", value: "none declared", note: a.message || "no mandate recorded" };
+  })();
+
   const claims = [
     ["Not altered", chain],
     ["Authorship", sig],
     ["Completeness", whole],
+    ["Authority", authority],
   ];
 
-  const worst = claims.some(([, c]) => c.level === "bad") ? "bad"
-    : claims.some(([, c]) => c.level === "warn") ? "warn" : "ok";
+  const rated = claims.filter(([, c]) => c.level);
+  const worst = rated.some(([, c]) => c.level === "bad") ? "bad"
+    : rated.some(([, c]) => c.level === "warn") ? "warn" : "ok";
   const summary = {
     ok: "This trace can be shown to someone who does not trust you.",
     warn: "This trace is intact, but it does not yet prove who wrote it or that nothing is missing.",
@@ -286,7 +299,7 @@ function renderClaims() {
         <span class="k">${label}</span><span class="v">${escapeHtml(c.value)}</span>
       </span>`).join("")}
     </div>
-    <div class="claimnote"><b>${escapeHtml(summary)}</b> ${escapeHtml(claims.find(([, c]) => c.level === worst)[1].note)}</div>`;
+    <div class="claimnote"><b>${escapeHtml(summary)}</b> ${escapeHtml(rated.find(([, c]) => c.level === worst)[1].note)}</div>`;
 }
 
 function renderTimeline() {
