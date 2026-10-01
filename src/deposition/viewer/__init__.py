@@ -60,6 +60,7 @@ def load_trace(
         "signature": signature,
         "completeness": _completeness(valid, run_end),
         "authority": _authority(valid),
+        "digest": _digest(valid),
         "run": {
             "run_id": result.run_id,
             "agent": (run_start or {}).get("body", {}).get("agent"),
@@ -162,11 +163,107 @@ def _authority(events: list[dict[str, Any]]) -> dict[str, Any]:
             "ok": False,
             "count": len(result.violations),
             "message": "; ".join(str(v) for v in result.violations[:3]),
+            "seqs": [v.seq for v in result.violations],
         }
     if not result.attestable:
         return {"status": "not_attestable", "ok": False, "message": result.summary()}
     checked = ", ".join(sorted(result.checked)) or "nothing enforceable"
     return {"status": "ok", "ok": True, "message": f"within mandate ({checked} checked)"}
+
+
+def _digest(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """The run compressed to what a reader opens it for.
+
+    A flat list of events is legible at fifty and noise at a thousand, so the
+    viewer leads with this and keeps the full list one click away. Episodes are
+    cut at human prompts - the natural chapters of an interactive session - and
+    moments are the events someone is actually looking for: things that changed
+    the world outside, failures, authority violations, and the turns that blew
+    up the context window. Everything here is a pointer into the full record,
+    never a replacement for it.
+    """
+    episodes: list[dict[str, Any]] = []
+    moments: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    def clip(text: Any, n: int = 90) -> str:
+        text = str(text or "").strip().replace("\n", " ")
+        return text[: n - 1] + "…" if len(text) > n else text
+
+    deltas = sorted(
+        (int(e["body"].get("context_delta") or 0), e["seq"])
+        for e in events
+        if e.get("type") == "llm_call" and e.get("body", {}).get("context_delta")
+    )
+    # "A spike" means relative to this run, not an absolute number: the five
+    # largest jumps, provided they are big enough to be worth a glance at all.
+    spikes = {seq for delta, seq in deltas[-5:] if delta >= 2000}
+
+    for event in events:
+        kind = event.get("type")
+        body = event.get("body") or {}
+        seq = event.get("seq")
+
+        if kind == "annotation" and body.get("author") == "user":
+            current = {
+                "prompt": clip(body.get("note")),
+                "start": seq,
+                "end": seq,
+                "turns": 0,
+                "tools": 0,
+                "mutations": 0,
+                "errors": 0,
+                "tokens": 0,
+            }
+            episodes.append(current)
+            continue
+
+        if current is not None:
+            current["end"] = seq
+            if kind == "llm_call":
+                current["turns"] += 1
+                current["tokens"] += int((body.get("usage") or {}).get("total_tokens") or 0)
+            elif kind == "tool_call":
+                current["tools"] += 1
+                if body.get("mutates_environment"):
+                    current["mutations"] += 1
+                if body.get("error"):
+                    current["errors"] += 1
+
+        if kind == "tool_call":
+            label = body.get("tool") or "tool"
+            detail = body.get("arguments")
+            if isinstance(detail, dict):
+                detail = detail.get("command") or detail.get("file_path") or detail
+            if body.get("error"):
+                moments.append({"kind": "error", "seq": seq, "label": label,
+                                "detail": clip(body["error"].get("message"))})
+            elif body.get("mutates_environment"):
+                moments.append({"kind": "mutation", "seq": seq, "label": label,
+                                "detail": clip(detail)})
+        elif kind == "error":
+            moments.append({"kind": "error", "seq": seq,
+                            "label": body.get("exception") or "error",
+                            "detail": clip(body.get("message"))})
+        elif kind == "llm_call" and seq in spikes:
+            moments.append({"kind": "spike", "seq": seq, "label": "context jump",
+                            "detail": f"+{int(body.get('context_delta') or 0):,} tokens "
+                                      f"to {int(body.get('context_tokens') or 0):,}"})
+
+    authority = _authority(events)
+    for violation_seq in authority.get("seqs") or []:
+        moments.append({"kind": "violation", "seq": violation_seq,
+                        "label": "mandate violation", "detail": authority["message"]})
+
+    moments.sort(key=lambda m: m["seq"])
+    contexts = [int(e["body"].get("context_tokens") or 0) for e in events
+                if e.get("type") == "llm_call" and e.get("body", {}).get("context_tokens")]
+    return {
+        "episodes": episodes,
+        "moments": moments,
+        "context": {"first": contexts[0], "last": contexts[-1], "peak": max(contexts)}
+        if contexts else None,
+    }
 
 
 def _blob_path(trace_path: str | os.PathLike[str], digest: str) -> Path:
