@@ -13,6 +13,7 @@ evenings.
 | [005](005-signing-and-anchoring.md) | Signing and anchoring the chain | accepted; layer 1 shipped, 2–3 pending |
 | [006](006-otel-attribute-mapping.md) | OpenTelemetry GenAI attribute mapping | accepted |
 | [007](007-the-name.md) | The name | accepted |
+| [008](008-canonical-json.md) | Canonical JSON moves to RFC 8785; schema v1 | **proposed** |
 
 New ADRs are numbered sequentially and never edited after they are accepted —
 supersede them with a new one instead, so the reasoning stays readable in order.
