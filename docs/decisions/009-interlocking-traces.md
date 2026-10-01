@@ -77,6 +77,16 @@ child's. Combined with a mandate (ADR 010) passed down at the same moment, the
 result is the thing an audit of a multi-agent system actually needs: who
 authorised whom to do what, and what each actually did, provable at every hop.
 
+## Standards posture
+
+Added 2026-10-01, while still proposed: protocols win by adoption politics,
+which a solo developer with a day job cannot drive. So this spec's usefulness
+must never depend on anyone else adopting it - two Deposition users verifying
+each other is the product feature, and that works with zero outside adoption.
+Where an emerging standard offers a seat (the IETF agent-audit-trail family,
+A2A-style headers), ride it rather than compete with it; "Deposition-Link" is a
+default wire name, not a flag to plant.
+
 ## Why spec-first, not code-first
 
 This is a wire format other implementations would have to match — the same
