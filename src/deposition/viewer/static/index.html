@@ -428,7 +428,30 @@ async function load() {
   select(Math.min(SELECTED, TRACE.events.length - 1));
 }
 
-load();
+// Live follow. The backend re-reads the trace on every request precisely so a
+// run still being written can be watched; this is the other half. Re-render
+// only when the trace actually grew or its verdict changed, so a reader
+// mid-investigation is never yanked around by the poll - and only follow the
+// tail if they were already at it, the way a terminal does.
+const POLL_MS = 2000;
+async function refresh() {
+  let next;
+  try {
+    next = await fetch("/api/trace").then((r) => r.json());
+  } catch {
+    return; // the server will be back; a live view must outlive a blip
+  }
+  const grew = next.events.length !== (TRACE?.events.length || 0);
+  const verdictChanged = JSON.stringify([next.integrity.ok, next.signature, next.completeness, next.authority])
+    !== JSON.stringify([TRACE.integrity.ok, TRACE.signature, TRACE.completeness, TRACE.authority]);
+  if (!grew && !verdictChanged) return;
+  const atTail = SELECTED >= TRACE.events.length - 1;
+  TRACE = next;
+  renderHeader();
+  select(atTail ? TRACE.events.length - 1 : Math.min(SELECTED, TRACE.events.length - 1));
+}
+
+load().then(() => setInterval(refresh, POLL_MS));
 </script>
 </body>
 </html>
