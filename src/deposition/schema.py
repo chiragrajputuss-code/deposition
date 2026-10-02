@@ -37,7 +37,13 @@ __all__ = [
 ]
 
 #: Bumped on every schema change, with a migration note in ``docs/decisions/``.
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "1.0"
+
+#: Versions this SDK can verify. The writer only ever emits the newest; the
+#: reader accepts every version that ever existed, because a record that its
+#: own tool can no longer check is the one outcome an evidence product must
+#: never produce (ADR 008).
+SUPPORTED_VERSIONS = ("0.1", "1.0")
 
 #: Bodies larger than this are externalised as content-addressed blobs.
 BLOB_THRESHOLD_BYTES = 64 * 1024
@@ -94,23 +100,112 @@ BODY_FIELDS: dict[EventType, tuple[str, ...]] = {
 }
 
 
-def canonical_json(obj: Any) -> str:
-    """Canonical JSON: sorted keys, no whitespace, UTF-8, no NaN/Infinity.
+def canonical_json(obj: Any, *, version: str = SCHEMA_VERSION) -> str:
+    """Canonical JSON: the exact byte-level contract the hash chain depends on.
 
-    This is the exact byte-level contract the hash chain depends on. Changing it
-    invalidates every trace ever written, so it is versioned with the schema.
+    v1.0 is RFC 8785 (JCS): numbers serialise the way every JavaScript engine
+    prints them, keys sort by UTF-16 code unit, so a verifier in any language
+    reproduces the same bytes and therefore the same hash. v0.1 was Python's
+    ``json.dumps(sort_keys=True)``, whose float formatting no other runtime can
+    reproduce - ADR 008 records the measurement that forced the change. The old
+    serialiser is kept forever, selected by each event's own ``v`` field, so no
+    existing trace ever becomes unverifiable by its own tool.
     """
-    return json.dumps(
-        obj,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
+    if version == "0.1":
+        return json.dumps(
+            obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+    return _jcs(obj)
 
 
-def canonical_bytes(obj: Any) -> bytes:
-    return canonical_json(obj).encode("utf-8")
+def canonical_bytes(obj: Any, *, version: str = SCHEMA_VERSION) -> bytes:
+    return canonical_json(obj, version=version).encode("utf-8")
+
+
+# -- RFC 8785 ----------------------------------------------------------------
+
+
+def _decimal_parts(value: float) -> tuple[str, int]:
+    """Shortest round-trip digits of ``abs(value)`` and its decimal position.
+
+    Python's ``repr`` and ECMAScript's ToString both emit the shortest decimal
+    that uniquely names the double, so the digit sequences agree; only the
+    *formatting* differs, which :func:`_es_number` applies.
+    """
+    text = repr(value)
+    mantissa, _, exponent = text.lower().partition("e")
+    shift = int(exponent) if exponent else 0
+    int_part, _, frac_part = mantissa.partition(".")
+    digits = (int_part + frac_part).lstrip("0")
+    if int_part.lstrip("0"):
+        position = len(int_part) + shift
+    else:
+        position = -(len(frac_part) - len(frac_part.lstrip("0"))) + shift
+    return digits.rstrip("0") or "0", position
+
+
+def _es_number(value: float) -> str:
+    """A finite float, printed exactly as ECMAScript ``Number::toString`` prints it.
+
+    The rules (ECMA-262 ss 6.1.6.1.20, via RFC 8785 ss 3.2.2.3): plain notation
+    within [1e-6, 1e21), exponent notation outside it, no leading zero on the
+    exponent, and negative zero prints as ``0`` - which is also what
+    ``JSON.stringify`` does, and not what Python does.
+    """
+    if value != value or value in (float("inf"), float("-inf")):
+        raise SchemaError("canonical JSON forbids NaN and Infinity")
+    if value == 0:
+        return "0"
+    sign = "-" if value < 0 else ""
+    digits, position = _decimal_parts(abs(value))
+    count = len(digits)
+    if count <= position <= 21:
+        body = digits + "0" * (position - count)
+    elif 0 < position <= 21:
+        body = digits[:position] + "." + digits[position:]
+    elif -6 < position <= 0:
+        body = "0." + "0" * (-position) + digits
+    else:
+        exponent = position - 1
+        head = digits[0] + ("." + digits[1:] if count > 1 else "")
+        body = f"{head}e{'+' if exponent >= 0 else '-'}{abs(exponent)}"
+    return sign + body
+
+
+def _utf16_key(key: str) -> bytes:
+    # JCS sorts keys by UTF-16 code unit; big-endian bytes compare identically.
+    return key.encode("utf-16-be")
+
+
+def _jcs(obj: Any) -> str:
+    """RFC 8785 serialisation. ``bool`` is checked before ``int`` deliberately.
+
+    Integers serialise exactly at any size. Beyond 2**53 that exceeds what a
+    JavaScript verifier can parse losslessly (I-JSON's interoperable range), so
+    the schema keeps its own counters well inside it.
+    """
+    if obj is True:
+        return "true"
+    if obj is False:
+        return "false"
+    if obj is None:
+        return "null"
+    if isinstance(obj, str):
+        return json.dumps(obj, ensure_ascii=False)
+    if isinstance(obj, int):
+        return str(obj)
+    if isinstance(obj, float):
+        return _es_number(obj)
+    if isinstance(obj, dict):
+        pairs = sorted(((str(k), v) for k, v in obj.items()), key=lambda kv: _utf16_key(kv[0]))
+        return (
+            "{"
+            + ",".join(json.dumps(k, ensure_ascii=False) + ":" + _jcs(v) for k, v in pairs)
+            + "}"
+        )
+    if isinstance(obj, (list, tuple)):
+        return "[" + ",".join(_jcs(v) for v in obj) + "]"
+    raise SchemaError(f"not JSON-serialisable: {type(obj).__name__}")
 
 
 def sha256_hex(data: bytes) -> str:
@@ -202,10 +297,10 @@ def validate_event(data: Any, *, sealed: bool = True) -> None:
         if key not in data:
             raise SchemaError(f"missing required field {key!r}")
 
-    if data["v"] != SCHEMA_VERSION:
+    if data["v"] not in SUPPORTED_VERSIONS:
         raise SchemaError(
             f"unsupported schema version {data['v']!r} "
-            f"(this SDK writes v{SCHEMA_VERSION})"
+            f"(this SDK writes v{SCHEMA_VERSION} and reads {', '.join(SUPPORTED_VERSIONS)})"
         )
 
     if not isinstance(data["run_id"], str) or not data["run_id"]:

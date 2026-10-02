@@ -154,6 +154,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
     else:
         for path, result, signature in results:
             print(f"{result.summary()}  [{path}]")
+            if any(
+                isinstance(e, dict) and e.get("v") == "0.1" for e in _load(path)
+            ):
+                # ADR 008: v0 predates RFC 8785 canonicalisation, so only this
+                # SDK can verify it. Said out loud, never implied away.
+                print("  note: schema v0.1 trace - verifiable by this SDK only, "
+                      "predates RFC 8785 canonicalisation")
             for error in result.errors:
                 print(f"  {error}")
             if not result.ok:

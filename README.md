@@ -75,12 +75,16 @@ One run is one append-only event log. Each line of the `.jsonl` file is one
 event, and each event's hash covers the previous event's hash:
 
 ```json
-{"v":"0.1","run_id":"run_9f3kQ2","seq":14,"ts":"2026-09-27T08:14:03.412Z",
+{"v":"1.0","run_id":"run_9f3kQ2","seq":14,"ts":"2026-09-27T08:14:03.412Z",
  "type":"tool_call","body":{...},"prev_hash":"9c41…","hash":"e7f2…"}
 ```
 
 Edit an event, drop one, or reorder two, and `deposition verify` names the first
-event where the trace stopped being trustworthy.
+event where the trace stopped being trustworthy. Hashing is over [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)
+canonical JSON, so a verifier in any language - including one running in a
+browser - computes the same bytes and the same hash. (Cross-checked against
+Node in the test suite; the "verifiable by anyone" claim stays off the
+marketing until that check also runs in CI.)
 
 **What that proves, precisely.** On its own the chain detects corruption and
 alteration by anyone who does not hold the trace file. It does not stop someone

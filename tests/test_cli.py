@@ -170,4 +170,4 @@ def test_version_reports_the_schema_version(capsys):
     with pytest.raises(SystemExit) as excinfo:
         main(["--version"])
     assert excinfo.value.code == 0
-    assert "trace schema v0.1" in capsys.readouterr().out
+    assert "trace schema v1.0" in capsys.readouterr().out

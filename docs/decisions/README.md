@@ -13,7 +13,7 @@ evenings.
 | [005](005-signing-and-anchoring.md) | Signing and anchoring the chain | accepted; layer 1 shipped, 2–3 pending |
 | [006](006-otel-attribute-mapping.md) | OpenTelemetry GenAI attribute mapping | accepted |
 | [007](007-the-name.md) | The name | accepted |
-| [008](008-canonical-json.md) | Canonical JSON moves to RFC 8785; schema v1 | **proposed** |
+| [008](008-canonical-json.md) | Canonical JSON moves to RFC 8785; schema v1 | accepted; shipped |
 | [009](009-interlocking-traces.md) | Interlocking traces: receipts between agents | **proposed** |
 | [010](010-mandates.md) | Mandates: record what the run was allowed to do | accepted |
 

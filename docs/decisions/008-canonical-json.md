@@ -1,6 +1,6 @@
 # 008 — Canonical JSON moves to RFC 8785, schema becomes v1
 
-**Status:** proposed, awaiting decision · **Date:** 2026-10-01
+**Status:** accepted 2026-10-02, implemented same day · **Date:** 2026-10-01
 **Raised by:** an attempt to verify a trace in a browser
 
 ## The problem

@@ -51,11 +51,17 @@ GENESIS_HASH = "0" * 64
 
 
 def event_hash(event: dict[str, Any]) -> str:
-    """SHA-256 over the event's canonical JSON, excluding its own ``hash`` field."""
+    """SHA-256 over the event's canonical JSON, excluding its own ``hash`` field.
+
+    The event's own ``v`` picks the canonicalisation, so a v0 trace keeps
+    verifying with the serialiser that wrote it while everything new is RFC 8785
+    (ADR 008). An event that names no version gets the current one.
+    """
     payload = {k: v for k, v in event.items() if k != "hash"}
     if "prev_hash" not in payload:
         raise SchemaError("cannot hash an event with no prev_hash")
-    return sha256_hex(canonical_bytes(payload))
+    version = payload.get("v") if isinstance(payload.get("v"), str) else None
+    return sha256_hex(canonical_bytes(payload, version=version or "1.0"))
 
 
 def seal(event: Event | dict[str, Any], prev_hash: str) -> dict[str, Any]:
