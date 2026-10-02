@@ -19,7 +19,14 @@ from typing import Any
 __all__ = ["ENFORCED_KEYS", "INFORMATIONAL_KEYS", "AuditResult", "Violation", "audit"]
 
 #: Mandate keys this version actually enforces.
-ENFORCED_KEYS = ("allowed_tools", "forbidden_tools", "max_cost_usd", "max_tokens", "max_steps")
+ENFORCED_KEYS = (
+    "allowed_tools",
+    "forbidden_tools",
+    "external_tools",
+    "max_cost_usd",
+    "max_tokens",
+    "max_steps",
+)
 
 #: Recorded, shown, never enforced.
 INFORMATIONAL_KEYS = ("issuer", "notes")
@@ -95,6 +102,10 @@ def audit(events: list[Any]) -> AuditResult:
         elif key not in INFORMATIONAL_KEYS:
             result.unchecked.append(key)
 
+    # Which tools reach outside the agent - send a message, move money, write
+    # somewhere durable. Declared by the operator, never guessed: whether a tool
+    # is consequential is a fact about their system, not about its name.
+    external = set(mandate.get("external_tools") or ())
     allowed = mandate.get("allowed_tools")
     forbidden = set(mandate.get("forbidden_tools") or ())
     max_cost = mandate.get("max_cost_usd")
@@ -157,5 +168,32 @@ def audit(events: list[Any]) -> AuditResult:
             totals = body.get("totals") or {}
             result.dropped = int(totals.get("dropped") or 0)
             result.adopted = int(totals.get("adopted") or 0)
+
+    # Provenance becomes a violation only where the operator said it matters.
+    #
+    # A value that came from fetched content is an ordinary fact - every
+    # retrieval produces one, and alerting on all of them would bury the finding
+    # that counts under thousands that do not. It is when such a value reaches a
+    # tool the operator declared *external* that it stops being a fact about
+    # data flow and becomes an unauthorised instruction crossing a boundary.
+    if external:
+        from .taint import tainted_arguments
+
+        for finding in tainted_arguments(rows):
+            if finding.tool in external:
+                result.violations.append(
+                    Violation(
+                        code="tainted_external",
+                        message=(
+                            f"{finding.tool} is declared external and was called with "
+                            f"{finding.field}={finding.value[:60]!r}, a value that first "
+                            f"appeared in {finding.source_tool}'s result at seq "
+                            f"{finding.source_seq} rather than in the instruction"
+                        ),
+                        seq=finding.seq,
+                        caused_by=(finding.source_seq,),
+                    )
+                )
+        result.violations.sort(key=lambda v: v.seq)
 
     return result

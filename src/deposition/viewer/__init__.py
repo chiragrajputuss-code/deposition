@@ -261,10 +261,18 @@ def _digest(events: list[dict[str, Any]]) -> dict[str, Any]:
     # the pairing with a violation that makes one damning.
     from ..taint import tainted_arguments
 
+    start = next((e for e in events if e.get("type") == "run_start"), None)
+    declared_external = set(
+        ((start or {}).get("body", {}).get("mandate") or {}).get("external_tools") or ()
+    )
+    violation_seqs = set(authority.get("seqs") or [])
     for finding in tainted_arguments(events):
+        if finding.seq in violation_seqs:
+            continue  # already reported as a violation; one event, one moment
         moments.append({
             "kind": "tainted", "seq": finding.seq,
             "label": f"{finding.tool} argument from content",
+            "severity": "alert" if finding.tool in declared_external else "context",
             "detail": f"{finding.field}={clip(finding.value, 48)} first appeared in "
                       f"{finding.source_tool}'s result (seq {finding.source_seq}), "
                       f"not in the instruction",
