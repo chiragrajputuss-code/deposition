@@ -64,16 +64,14 @@ harness rather than self-report.
 
 ## Install
 
-Not on PyPI yet. Until then, install from source:
-
 ```console
-pip install git+https://github.com/chiragrajputuss-code/deposition.git
-pip install "deposition[viewer] @ git+https://github.com/chiragrajputuss-code/deposition.git"
-pip install "deposition[signing] @ git+https://github.com/chiragrajputuss-code/deposition.git"
+pip install deposition             # SDK + the `depo` CLI
+pip install 'deposition[viewer]'   # adds the local replay viewer
+pip install 'deposition[signing]'  # adds Ed25519 signing
 ```
 
 Or clone and install editable, which is what you want if you plan to read the
-code — and reading the code is the point of an evidence tool:
+code - and reading the code is the point of an evidence tool:
 
 ```console
 git clone https://github.com/chiragrajputuss-code/deposition.git
@@ -83,9 +81,13 @@ python examples/04_refund_dispute.py
 deposition verify ./deposition/run_*.jsonl --pubkey ./deposition/refunds.pem.pub
 ```
 
-Python 3.10+. The SDK itself has **zero** required dependencies — heavy deps kill
+Python 3.10+. The SDK itself has **zero** required dependencies - heavy deps kill
 adoption, and a recorder you cannot install is a recorder that records nothing.
 `viewer` adds FastAPI; `signing` adds `cryptography`. Neither is needed to record.
+
+Published as `0.1.0.dev0` while the API settles: pre-release, so `pip install
+deposition` gives you it only because no stable release exists yet, and nothing
+pins to it by accident.
 
 ## How it works
 
