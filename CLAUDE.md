@@ -23,6 +23,7 @@ src/deposition/
   chain.py         hash-chain build + verify
   signing.py       Ed25519 signatures over the head hash ([signing] extra)
   mandate.py       audit a run against the authority recorded in run_start
+  taint.py         argument provenance: which tool values came from fetched content
   instrument/      auto-patching: openai.py, anthropic.py
   exporters/       jsonl.py (local), http.py (hosted, Phase 2), otel.py (Phase 4)
   viewer/          FastAPI app + pre-built static UI

@@ -255,6 +255,21 @@ def _digest(events: list[dict[str, Any]]) -> dict[str, Any]:
         moments.append({"kind": "violation", "seq": violation_seq,
                         "label": "mandate violation", "detail": authority["message"]})
 
+    # Provenance, not intent: a value handed to a tool that came from content the
+    # agent read rather than from the instruction. Ordinary retrieval produces
+    # these too, so it is shown as a question, never as an accusation - it is
+    # the pairing with a violation that makes one damning.
+    from ..taint import tainted_arguments
+
+    for finding in tainted_arguments(events):
+        moments.append({
+            "kind": "tainted", "seq": finding.seq,
+            "label": f"{finding.tool} argument from content",
+            "detail": f"{finding.field}={clip(finding.value, 48)} first appeared in "
+                      f"{finding.source_tool}'s result (seq {finding.source_seq}), "
+                      f"not in the instruction",
+        })
+
     moments.sort(key=lambda m: m["seq"])
     contexts = [int(e["body"].get("context_tokens") or 0) for e in events
                 if e.get("type") == "llm_call" and e.get("body", {}).get("context_tokens")]
