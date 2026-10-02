@@ -16,6 +16,7 @@ evenings.
 | [008](008-canonical-json.md) | Canonical JSON moves to RFC 8785; schema v1 | accepted; shipped |
 | [009](009-interlocking-traces.md) | Interlocking traces: receipts between agents | **proposed** |
 | [010](010-mandates.md) | Mandates: record what the run was allowed to do | accepted |
+| [011](011-claims-policy.md) | What we claim, and what we never claim | accepted |
 
 New ADRs are numbered sequentially and never edited after they are accepted —
 supersede them with a new one instead, so the reasoning stays readable in order.

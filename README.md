@@ -21,6 +21,13 @@ ground. Deposition's wedge is **replay + tamper-evidence + root cause**: a recor
 that cannot be altered behind your back, and a causal chain that answers *why did
 the agent do that?*
 
+None of the pieces here are inventions. Hash chains, signatures and provenance
+tracking are old ideas with living neighbours, and the
+[architecture decisions](docs/decisions/) cite them. What this project commits to
+is a posture: never in your agent's hot path, never a probabilistic judgment
+sealed as fact, never one green light where four separate claims belong — and
+independent of every party it records.
+
 ```python
 import deposition
 
@@ -59,7 +66,7 @@ harness rather than self-report.
 | Hash chain (build + verify) | done |
 | Ed25519 signing | done — `[signing]` extra |
 | Mandates + `deposition audit` | done — [ADR 010](docs/decisions/010-mandates.md) |
-| Argument provenance (injection forensics) | done |
+| Argument provenance (injection forensics) | done — prior art cited, [ADR 011](docs/decisions/011-claims-policy.md) |
 | Local `.jsonl` recording, blob externalisation | done |
 | CLI (`view` / `verify` / `audit` / `diff` / `keygen`) | done |
 | Local replay viewer, four-claim trust panel | done |

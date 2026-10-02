@@ -69,6 +69,9 @@ uv pip install --python .venv/bin/python -e '.[dev,viewer]'   # dev pulls in sig
   module stays importable without the extra.
 - Never leave a session with a half-broken repo: end with tests green and a
   commit.
+- **No copy claims novelty, anywhere.** Show a demonstration or a measurement;
+  cite the prior art; differentiate on posture, never on mechanism. A search
+  falsified our last invention claim in under a minute - ADR 011 is the policy.
 
 ## Conventions
 

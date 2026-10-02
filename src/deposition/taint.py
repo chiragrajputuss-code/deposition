@@ -15,6 +15,16 @@ because the attacker's address has to come from somewhere.
 So this module reports origin, never intent. "This argument came from fetched
 content" is a fact a reader can check in the trace. "This was an attack" is a
 conclusion for a human.
+
+Prior art, cited because honesty about lineage is the same property as honesty
+about records: the mechanism is taint analysis, compiler security since the
+1970s, and its application to agent tool arguments is an active field - ARGUS
+(arXiv 2605.03378) and Agent-Sentry (arXiv 2603.22868) trace per-argument
+provenance, and `taintgate` on PyPI gates tool calls on it. Those systems block
+at runtime. This one deliberately does not: it records the fact into the sealed
+trace and raises it only against a declared mandate, because this SDK has
+promised never to be the reason an agent fell over. Same mechanism as the
+field; opposite posture (ADR 011).
 """
 
 from __future__ import annotations
