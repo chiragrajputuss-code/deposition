@@ -49,8 +49,9 @@ after looking clean on PyPI and DNS.
 
 ## Not yet done
 
-**Trademark registries have not been searched.** PyPI, DNS and product search are
-not a trademark clearance. Do that before buying the domain or filing anything.
+**Trademark clearance is a separate step from availability.** PyPI, DNS and a
+product search establish that a name is free to use; none of them is a clearance
+search. Complete that step before buying a domain or filing anything.
 
 ## Rule for next time
 

@@ -16,7 +16,7 @@ actually write — the client is usually a module-level global. `shutdown()` put
 every original method back.
 
 Only these two. LangGraph and CrewAI adapters are Phase 4: adapters chase
-frameworks, frameworks change faster than a solo developer can follow, and a
+frameworks, frameworks change faster than any small team can follow, and a
 broken adapter costs more trust than a missing one.
 
 ## Causality is observed, never inferred

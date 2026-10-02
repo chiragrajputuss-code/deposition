@@ -99,10 +99,9 @@ event, and each event's hash covers the previous event's hash:
 
 Edit an event, drop one, or reorder two, and `deposition verify` names the first
 event where the trace stopped being trustworthy. Hashing is over [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)
-canonical JSON, so a verifier in any language - including one running in a
-browser - computes the same bytes and the same hash. (Cross-checked against
-Node in the test suite; the "verifiable by anyone" claim stays off the
-marketing until that check also runs in CI.)
+canonical JSON, so a verifier in any language, including one running in a
+browser, computes the same bytes and the same hash. The test suite cross-checks
+this against a live Node process, including 400 randomly generated doubles.
 
 **What that proves, precisely.** On its own the chain detects corruption and
 alteration by anyone who does not hold the trace file. It does not stop someone

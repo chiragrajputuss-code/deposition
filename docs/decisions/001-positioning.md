@@ -7,7 +7,7 @@
 Deposition is **replay + tamper-evidence + root cause**, not monitoring.
 
 LangSmith, Langfuse and AgentOps own the observability-metrics ground and are
-better resourced than a solo developer with 8–10 hours a week. Competing on
+better resourced than this project will ever be. Competing on
 dashboards, evals or prompt management is competing on their terms and losing.
 
 The bet is that a different question is under-served. Not *how is my agent

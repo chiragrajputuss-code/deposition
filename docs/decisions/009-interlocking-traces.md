@@ -80,7 +80,7 @@ authorised whom to do what, and what each actually did, provable at every hop.
 ## Standards posture
 
 Added 2026-10-01, while still proposed: protocols win by adoption politics,
-which a solo developer with a day job cannot drive. So this spec's usefulness
+which a small project cannot drive. So this spec's usefulness
 must never depend on anyone else adopting it - two Deposition users verifying
 each other is the product feature, and that works with zero outside adoption.
 Where an emerging standard offers a seat (the IETF agent-audit-trail family,
