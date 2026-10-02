@@ -7,6 +7,8 @@
 
 **A sworn record of what your AI agent actually did.**
 
+![A signed refund trace, forged, and caught: the hash chain still verifies while the signature fails](docs/media/demo.gif)
+
 *A deposition is sworn testimony, recorded verbatim outside a courtroom and used
 as evidence when someone later disputes what happened. That is the idea.*
 
