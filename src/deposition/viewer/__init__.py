@@ -164,6 +164,12 @@ def _authority(events: list[dict[str, Any]]) -> dict[str, Any]:
             "count": len(result.violations),
             "message": "; ".join(str(v) for v in result.violations[:3]),
             "seqs": [v.seq for v in result.violations],
+            # Each violation with its own words. Two rules can fire on one event
+            # - a forbidden tool that also received a content-derived value - and
+            # the reader needs the specific reason, not the concatenation.
+            "violations": [
+                {"seq": v.seq, "code": v.code, "message": v.message} for v in result.violations
+            ],
         }
     if not result.attestable:
         return {"status": "not_attestable", "ok": False, "message": result.summary()}
@@ -251,9 +257,19 @@ def _digest(events: list[dict[str, Any]]) -> dict[str, Any]:
                                       f"to {int(body.get('context_tokens') or 0):,}"})
 
     authority = _authority(events)
-    for violation_seq in authority.get("seqs") or []:
-        moments.append({"kind": "violation", "seq": violation_seq,
-                        "label": "mandate violation", "detail": authority["message"]})
+    # One event, one moment: the most specific rule wins when several fire.
+    PRECEDENCE = {"tainted_external": 0, "forbidden_tool": 1, "tool_not_allowed": 2}
+    best: dict[int, dict[str, Any]] = {}
+    for violation in authority.get("violations") or []:
+        rank = PRECEDENCE.get(violation["code"], 9)
+        if violation["seq"] not in best or rank < best[violation["seq"]]["_rank"]:
+            best[violation["seq"]] = dict(violation, _rank=rank)
+    for seq, violation in sorted(best.items()):
+        moments.append({
+            "kind": "violation", "seq": seq,
+            "label": violation["code"].replace("_", " "),
+            "detail": violation["message"],
+        })
 
     # Provenance, not intent: a value handed to a tool that came from content the
     # agent read rather than from the instruction. Ordinary retrieval produces
