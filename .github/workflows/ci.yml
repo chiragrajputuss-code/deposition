@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # The canonicalisation tests shell out to node and compare its output
+      # against ours. Without node they skip, and a silently skipped
+      # cross-language check is worth nothing - see ADR 008.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: pip install -e '.[dev,viewer,signing]'
+      - run: python -m pytest -q
+      - name: the cross-language vectors must actually have run
+        run: |
+          python -m pytest tests/test_canonical.py -q -rs 2>&1 | tee out.txt
+          if grep -q "skipped" out.txt; then
+            echo "::error::RFC 8785 cross-check skipped - node missing or guard wrong"
+            exit 1
+          fi
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check src tests
+
+  no-dependencies:
+    name: installs with zero dependencies (ADR 003)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The promise is that the recorder installs and records with nothing but
+      # the standard library. A test suite cannot check this, because the suite
+      # needs its own dependencies - only a bare install can.
+      - run: pip install .
+      - name: nothing but the standard library arrived
+        run: |
+          installed=$(pip list --format=freeze --exclude-editable | grep -v "^deposition==" | grep -v "^pip==" | grep -v "^setuptools==" | grep -v "^wheel==" || true)
+          if [ -n "$installed" ]; then
+            echo "::error::deposition pulled in dependencies:"; echo "$installed"; exit 1
+          fi
+          echo "clean: no third-party packages installed"
+      - name: it records and verifies on a bare install
+        run: |
+          python examples/01_minimal.py
+          deposition verify ./deposition/run_*.jsonl

@@ -1,5 +1,10 @@
 # Deposition
 
+[![CI](https://github.com/chiragrajputuss-code/deposition/actions/workflows/ci.yml/badge.svg)](https://github.com/chiragrajputuss-code/deposition/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/deposition)](https://pypi.org/project/deposition/)
+[![Python](https://img.shields.io/pypi/pyversions/deposition)](https://pypi.org/project/deposition/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 **A sworn record of what your AI agent actually did.**
 
 *A deposition is sworn testimony, recorded verbatim outside a courtroom and used
