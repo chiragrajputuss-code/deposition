@@ -42,32 +42,50 @@ serving replay viewer on http://127.0.0.1:7878
 
 ## Status
 
-Pre-release, building in the open. v0.1 is the SDK, the hash chain and the local
-replay viewer. A hosted platform (team storage, search, run diffing, causal
-"why" analysis, exportable audit reports) follows.
+Pre-release, building in the open. Everything below is implemented and tested
+(283 tests) against real agent frameworks, with an independent ground-truth
+harness rather than self-report.
 
 | Piece | State |
 | --- | --- |
-| Trace schema v0 | frozen — see [`docs/decisions/002-schema-v0.md`](docs/decisions/002-schema-v0.md) |
+| Trace schema v1.0 — RFC 8785 canonical JSON | done — [ADR 008](docs/decisions/008-canonical-json.md) |
 | Hash chain (build + verify) | done |
-| Local `.jsonl` recording | done |
-| CLI (`view` / `verify` / `diff` / `keygen`) | done |
-| Local replay viewer | done |
+| Ed25519 signing | done — `[signing]` extra |
+| Mandates + `deposition audit` | done — [ADR 010](docs/decisions/010-mandates.md) |
+| Argument provenance (injection forensics) | done |
+| Local `.jsonl` recording, blob externalisation | done |
+| CLI (`view` / `verify` / `audit` / `diff` / `keygen`) | done |
+| Local replay viewer, four-claim trust panel | done |
 | OpenAI / Anthropic auto-instrumentation | done (non-streaming) |
-| Ed25519 signing (local key) | done — `[signing]` extra |
-| Countersigning at ingest | Phase 2 |
-| Hosted mode | Phase 2 |
+| Tool capture: LangGraph, CrewAI, OpenAI Agents SDK, Pydantic AI, AutoGen | done |
+| Streaming capture | not yet — request recorded, response is not |
+| Countersigning at ingest | Phase 2 — [ADR 005](docs/decisions/005-signing-and-anchoring.md) |
+| Interlocking traces (agent-to-agent) | proposed — [ADR 009](docs/decisions/009-interlocking-traces.md) |
 
 ## Install
 
+Not on PyPI yet. Until then, install from source:
+
 ```console
-pip install deposition             # SDK + the `depo` CLI
-pip install 'deposition[viewer]'   # adds the local replay viewer
-pip install 'deposition[signing]'  # adds Ed25519 signing
+pip install git+https://github.com/chiragrajputuss-code/deposition.git
+pip install "deposition[viewer] @ git+https://github.com/chiragrajputuss-code/deposition.git"
+pip install "deposition[signing] @ git+https://github.com/chiragrajputuss-code/deposition.git"
+```
+
+Or clone and install editable, which is what you want if you plan to read the
+code — and reading the code is the point of an evidence tool:
+
+```console
+git clone https://github.com/chiragrajputuss-code/deposition.git
+cd deposition
+pip install -e '.[viewer,signing]'
+python examples/04_refund_dispute.py
+deposition verify ./deposition/run_*.jsonl --pubkey ./deposition/refunds.pem.pub
 ```
 
 Python 3.10+. The SDK itself has **zero** required dependencies — heavy deps kill
 adoption, and a recorder you cannot install is a recorder that records nothing.
+`viewer` adds FastAPI; `signing` adds `cryptography`. Neither is needed to record.
 
 ## How it works
 
@@ -158,7 +176,7 @@ In local mode nothing leaves your machine at all.
 
 ## Documentation
 
-- [Trace schema v0](docs/decisions/002-schema-v0.md)
+- [Trace schema](docs/decisions/002-schema-v0.md) and its [v1 canonicalisation](docs/decisions/008-canonical-json.md)
 - [Architecture decisions](docs/decisions/)
 - [Examples](examples/) — 13 runnable agents, including a disputed refund, a
   regulated credit denial, a prompt-injection incident, a multi-agent handoff and
