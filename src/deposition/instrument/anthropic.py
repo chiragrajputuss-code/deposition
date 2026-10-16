@@ -4,9 +4,11 @@ Wraps ``messages.create`` (sync and async) into ``llm_call`` events. Same shape
 as the OpenAI adapter - the schema is provider neutral, ``body.provider`` is what
 differs.
 
-``messages.stream()`` is **not** covered in v0: it returns a context manager that
-does not route through ``create``, and wrapping it safely means owning the
-caller's iteration. See ADR 004.
+``messages.stream()`` is also patched, but only at the point of the call: it
+returns a context manager synchronously and the request has not gone over the
+network yet, so that moment is safe to record without going anywhere near the
+caller's iteration. What happens once the caller enters the manager is not
+recorded - see ADR 004 and "Current limitations" in the README.
 """
 
 from __future__ import annotations
@@ -129,6 +131,20 @@ def install(recorder: Recorder) -> bool:
                 provider=PROVIDER,
                 describe_request=describe_request,
                 describe_response=describe_response,
+            ),
+        )
+        # `.stream()` is a plain, synchronous method on *both* Messages and
+        # AsyncMessages - it builds a context manager and returns it, it does
+        # not await anything itself - so it always takes the non-async wrapper
+        # regardless of which class it is patched on.
+        patched |= _common.patch(
+            owner,
+            "stream",
+            lambda original: _common.wrap_stream_entrypoint(
+                recorder,
+                original,
+                provider=PROVIDER,
+                describe_request=describe_request,
             ),
         )
     return patched

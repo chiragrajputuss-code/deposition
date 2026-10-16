@@ -125,6 +125,21 @@ def anthropic_calls():
         yield provider
 
 
+class _StreamManagerSentinel:
+    """Stands in for anthropic's MessageStreamManager - a bare object is
+    enough, since the whole claim under test is that nothing ever touches it."""
+
+
+@pytest.fixture
+def anthropic_stream_calls():
+    from anthropic.resources.messages import Messages
+
+    sentinel = _StreamManagerSentinel()
+    with _Provider(Messages, "stream", lambda **kw: sentinel) as provider:
+        provider.sentinel = sentinel
+        yield provider
+
+
 def events(path):
     return [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
 
@@ -283,9 +298,7 @@ def test_a_tool_call_is_linked_to_the_model_output_that_asked_for_it(trace_dir, 
     client = anthropic_sdk.Anthropic(api_key="test")
 
     def work():
-        client.messages.create(
-            model="claude-sonnet-5", messages=[], tools=[WEATHER_TOOL_ANTHROPIC]
-        )
+        client.messages.create(model="claude-sonnet-5", messages=[], tools=[WEATHER_TOOL_ANTHROPIC])
         with deposition.step("tool_call", tool="get_weather") as body:
             body["result"] = "18C"
 
@@ -548,3 +561,93 @@ def test_an_object_whose_parse_returns_itself_does_not_recurse():
             return "self-parsing"
 
     assert jsonable(SelfParsing()) == "self-parsing"
+
+
+# -- messages.stream(): the entry point that used to leave no event at all --
+
+
+def test_stream_records_a_request_event_with_no_network_call_made(
+    trace_dir, anthropic_stream_calls
+):
+    # The call under test never does anything but construct a context manager
+    # - describe_request can see the model and messages before any I/O happens.
+    client = anthropic_sdk.Anthropic(api_key="test")
+    recorded = run_and_read(
+        trace_dir,
+        lambda: client.messages.stream(
+            model="claude-sonnet-5", max_tokens=100, messages=[{"role": "user", "content": "hi"}]
+        ),
+    )
+    call = recorded[1]["body"]
+    assert call["gen_ai.request.model"] == "claude-sonnet-5"
+    assert call["streamed"] is True
+    assert call["response"] == {"streamed": True, "captured": False}
+
+
+def test_stream_returns_the_managers_identity_completely_unchanged(
+    trace_dir, anthropic_stream_calls
+):
+    # The property that makes this safe to ship: the object the caller gets
+    # back is the exact one the SDK built, not a copy, not a proxy.
+    client = anthropic_sdk.Anthropic(api_key="test")
+    result = []
+    run_and_read(
+        trace_dir,
+        lambda: result.append(
+            client.messages.stream(model="claude-sonnet-5", max_tokens=100, messages=[])
+        ),
+    )
+    assert result[0] is anthropic_stream_calls.sentinel
+
+
+def test_stream_entry_point_error_is_recorded_and_still_raised(trace_dir):
+    from anthropic.resources.messages import Messages
+
+    def boom(**kwargs):
+        raise RuntimeError("bad request")
+
+    with _Provider(Messages, "stream", lambda **kw: boom(**kw)):
+        client = anthropic_sdk.Anthropic(api_key="test")
+        deposition.init("test-project", directory=trace_dir)
+
+        @deposition.record(name="agent")
+        def agent():
+            with pytest.raises(RuntimeError, match="bad request"):
+                client.messages.stream(model="claude-sonnet-5", max_tokens=100, messages=[])
+
+        agent()
+        path = deposition._recorder._runs[-1].path
+        deposition.shutdown()
+        recorded = events(path)
+
+    assert recorded[1]["body"]["error"]["message"] == "bad request"
+
+
+def test_stream_requests_no_causal_edges_since_no_tool_use_is_ever_seen(
+    trace_dir, anthropic_stream_calls
+):
+    # There is nothing to extract a requested tool name from - the response is
+    # never read - so this must not claim an edge it cannot have observed.
+    client = anthropic_sdk.Anthropic(api_key="test")
+    recorded = run_and_read(
+        trace_dir,
+        lambda: client.messages.stream(
+            model="claude-sonnet-5",
+            max_tokens=100,
+            messages=[],
+            tools=[WEATHER_TOOL_ANTHROPIC],
+        ),
+    )
+    assert "tool_calls" not in recorded[1]["body"].get("response", {})
+
+
+def test_shutdown_restores_stream_alongside_create(trace_dir, anthropic_calls):
+    from anthropic.resources.messages import AsyncMessages, Messages
+
+    original_sync, original_async = Messages.stream, AsyncMessages.stream
+    deposition.init("test-project", directory=trace_dir)
+    assert Messages.stream is not original_sync
+    assert AsyncMessages.stream is not original_async
+    deposition.shutdown()
+    assert Messages.stream is original_sync
+    assert AsyncMessages.stream is original_async

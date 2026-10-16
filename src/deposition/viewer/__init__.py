@@ -24,9 +24,7 @@ __all__ = ["load_trace", "create_app", "serve"]
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-def load_trace(
-    path: str | os.PathLike[str], *, public_key: str | None = None
-) -> dict[str, Any]:
+def load_trace(path: str | os.PathLike[str], *, public_key: str | None = None) -> dict[str, Any]:
     """Read a trace and establish what can be claimed about it, in one pass.
 
     Three separate questions, never collapsed into one badge:
@@ -122,19 +120,34 @@ def _completeness(events: list[dict[str, Any]], run_end: dict[str, Any] | None) 
     dropped = int(totals.get("dropped") or 0)
     adopted = int(totals.get("adopted") or 0)
     ended = run_end is not None
+    streamed = _uncaptured_streamed_calls(events)
 
     if not ended:
-        status, message = "truncated", (
-            "no run_end - the run was interrupted or the recorder never finished writing"
+        status, message = (
+            "truncated",
+            ("no run_end - the run was interrupted or the recorder never finished writing"),
         )
     elif dropped:
-        status, message = "lossy", (
-            f"{dropped} event(s) were dropped before reaching the trace"
-        )
+        status, message = "lossy", (f"{dropped} event(s) were dropped before reaching the trace")
     elif adopted:
-        status, message = "inferred", (
-            f"{adopted} event(s) arrived with no run context and were attributed by "
-            "elimination, not by observation"
+        status, message = (
+            "inferred",
+            (
+                f"{adopted} event(s) arrived with no run context and were attributed by "
+                "elimination, not by observation"
+            ),
+        )
+    elif streamed:
+        # Not an accident, like the branches above - a declared trade-off
+        # (ADR 004, "Current limitations" in the README): capturing a
+        # streamed response would mean consuming the caller's own stream
+        # object. The claim is still not "complete", and must not say so.
+        status, message = (
+            "streamed",
+            (
+                f"{streamed} model call(s) streamed their response and were recorded "
+                "without its content, by design - see 'Current limitations' in the README"
+            ),
         )
     else:
         status, message = "complete", "the recorder reports no dropped or inferred events"
@@ -145,8 +158,19 @@ def _completeness(events: list[dict[str, Any]], run_end: dict[str, Any] | None) 
         "ok": status == "complete",
         "dropped": dropped,
         "adopted": adopted,
+        "streamed": streamed,
         "events": len(events),
     }
+
+
+def _uncaptured_streamed_calls(events: list[dict[str, Any]]) -> int:
+    return sum(
+        1
+        for e in events
+        if e.get("type") == "llm_call"
+        and isinstance(e.get("body", {}).get("response"), dict)
+        and e["body"]["response"].get("captured") is False
+    )
 
 
 def _authority(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -242,19 +266,54 @@ def _digest(events: list[dict[str, Any]]) -> dict[str, Any]:
             if isinstance(detail, dict):
                 detail = detail.get("command") or detail.get("file_path") or detail
             if body.get("error"):
-                moments.append({"kind": "error", "seq": seq, "label": label,
-                                "detail": clip(body["error"].get("message"))})
+                moments.append(
+                    {
+                        "kind": "error",
+                        "seq": seq,
+                        "label": label,
+                        "detail": clip(body["error"].get("message")),
+                    }
+                )
             elif body.get("mutates_environment"):
-                moments.append({"kind": "mutation", "seq": seq, "label": label,
-                                "detail": clip(detail)})
+                moments.append(
+                    {"kind": "mutation", "seq": seq, "label": label, "detail": clip(detail)}
+                )
         elif kind == "error":
-            moments.append({"kind": "error", "seq": seq,
-                            "label": body.get("exception") or "error",
-                            "detail": clip(body.get("message"))})
+            moments.append(
+                {
+                    "kind": "error",
+                    "seq": seq,
+                    "label": body.get("exception") or "error",
+                    "detail": clip(body.get("message")),
+                }
+            )
         elif kind == "llm_call" and seq in spikes:
-            moments.append({"kind": "spike", "seq": seq, "label": "context jump",
-                            "detail": f"+{int(body.get('context_delta') or 0):,} tokens "
-                                      f"to {int(body.get('context_tokens') or 0):,}"})
+            moments.append(
+                {
+                    "kind": "spike",
+                    "seq": seq,
+                    "label": "context jump",
+                    "detail": f"+{int(body.get('context_delta') or 0):,} tokens "
+                    f"to {int(body.get('context_tokens') or 0):,}",
+                }
+            )
+        elif (
+            kind == "llm_call"
+            and isinstance(body.get("response"), dict)
+            and body["response"].get("captured") is False
+        ):
+            # Not an error, not a drop - a declared gap. Surfaced here so a
+            # reader using the default chapters view encounters it instead of
+            # it sitting silently inside a body nobody opens.
+            moments.append(
+                {
+                    "kind": "uncaptured",
+                    "seq": seq,
+                    "label": "streamed response not captured",
+                    "detail": "content was never recorded, by design - "
+                    "see 'Current limitations' in the README",
+                }
+            )
 
     authority = _authority(events)
     # One event, one moment: the most specific rule wins when several fire.
@@ -265,11 +324,14 @@ def _digest(events: list[dict[str, Any]]) -> dict[str, Any]:
         if violation["seq"] not in best or rank < best[violation["seq"]]["_rank"]:
             best[violation["seq"]] = dict(violation, _rank=rank)
     for seq, violation in sorted(best.items()):
-        moments.append({
-            "kind": "violation", "seq": seq,
-            "label": violation["code"].replace("_", " "),
-            "detail": violation["message"],
-        })
+        moments.append(
+            {
+                "kind": "violation",
+                "seq": seq,
+                "label": violation["code"].replace("_", " "),
+                "detail": violation["message"],
+            }
+        )
 
     # Provenance, not intent: a value handed to a tool that came from content the
     # agent read rather than from the instruction. Ordinary retrieval produces
@@ -285,23 +347,30 @@ def _digest(events: list[dict[str, Any]]) -> dict[str, Any]:
     for finding in tainted_arguments(events):
         if finding.seq in violation_seqs:
             continue  # already reported as a violation; one event, one moment
-        moments.append({
-            "kind": "tainted", "seq": finding.seq,
-            "label": f"{finding.tool} argument from content",
-            "severity": "alert" if finding.tool in declared_external else "context",
-            "detail": f"{finding.field}={clip(finding.value, 48)} first appeared in "
-                      f"{finding.source_tool}'s result (seq {finding.source_seq}), "
-                      f"not in the instruction",
-        })
+        moments.append(
+            {
+                "kind": "tainted",
+                "seq": finding.seq,
+                "label": f"{finding.tool} argument from content",
+                "severity": "alert" if finding.tool in declared_external else "context",
+                "detail": f"{finding.field}={clip(finding.value, 48)} first appeared in "
+                f"{finding.source_tool}'s result (seq {finding.source_seq}), "
+                f"not in the instruction",
+            }
+        )
 
     moments.sort(key=lambda m: m["seq"])
-    contexts = [int(e["body"].get("context_tokens") or 0) for e in events
-                if e.get("type") == "llm_call" and e.get("body", {}).get("context_tokens")]
+    contexts = [
+        int(e["body"].get("context_tokens") or 0)
+        for e in events
+        if e.get("type") == "llm_call" and e.get("body", {}).get("context_tokens")
+    ]
     return {
         "episodes": episodes,
         "moments": moments,
         "context": {"first": contexts[0], "last": contexts[-1], "peak": max(contexts)}
-        if contexts else None,
+        if contexts
+        else None,
     }
 
 

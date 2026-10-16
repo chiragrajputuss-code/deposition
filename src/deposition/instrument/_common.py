@@ -26,7 +26,16 @@ from ..schema import EventType
 if TYPE_CHECKING:  # pragma: no cover
     from .. import Recorder
 
-__all__ = ["jsonable", "patch", "revert_all", "instrumented", "record_llm_call"]
+__all__ = [
+    "jsonable",
+    "patch",
+    "revert_all",
+    "instrumented",
+    "record_llm_call",
+    "wrap",
+    "wrap_async",
+    "wrap_stream_entrypoint",
+]
 
 #: How deep to walk a response before giving up and stringifying. Guards against
 #: cyclic or pathologically nested provider objects.
@@ -172,8 +181,14 @@ def wrap(
         try:
             result = original(_self, *args, **kwargs)
         except BaseException as exc:
-            _safely(record_llm_call, recorder, provider=provider, request=request,
-                    started=started, error=exc)
+            _safely(
+                record_llm_call,
+                recorder,
+                provider=provider,
+                request=request,
+                started=started,
+                error=exc,
+            )
             raise
         _safely(_record_success, recorder, provider, request, started, result, describe_response)
         return result
@@ -201,10 +216,73 @@ def wrap_async(
         try:
             result = await original(_self, *args, **kwargs)
         except BaseException as exc:
-            _safely(record_llm_call, recorder, provider=provider, request=request,
-                    started=started, error=exc)
+            _safely(
+                record_llm_call,
+                recorder,
+                provider=provider,
+                request=request,
+                started=started,
+                error=exc,
+            )
             raise
         _safely(_record_success, recorder, provider, request, started, result, describe_response)
+        return result
+
+    return wrapper
+
+
+def wrap_stream_entrypoint(
+    recorder: Recorder,
+    original: Callable[..., Any],
+    *,
+    provider: str,
+    describe_request: Callable[[dict[str, Any]], dict[str, Any]],
+) -> Callable[..., Any]:
+    """Wrap a method whose job is to *return a streaming context manager*, not
+    to make the call itself - Anthropic's ``messages.stream()``, which returns
+    a ``MessageStreamManager`` synchronously and does nothing over the network
+    until the caller enters it.
+
+    Without this, a call through ``.stream()`` leaves no event at all: unlike
+    ``.create(stream=True)``, it never passes through the request/response
+    wrapper above, so the trace has nothing to be incomplete *about* - a gap
+    with no record that it exists. This records one ``llm_call`` for the
+    request at the moment ``.stream()`` is called, with the same honest marker
+    ``.create(stream=True)`` uses, then hands back the manager the SDK built,
+    completely untouched. Nothing here ever calls ``__enter__``, iterates a
+    chunk, or wraps the object in a proxy - rule 2 at the top of this module
+    holds here most of all, because a streaming response is exactly the
+    object a careless wrapper would break by touching it at all.
+    """
+
+    @functools.wraps(original)
+    def wrapper(_self: Any, *args: Any, **kwargs: Any) -> Any:
+        started = time.monotonic()
+        try:
+            request = describe_request(kwargs)
+            request["streamed"] = True
+        except Exception:  # noqa: BLE001
+            request = {"streamed": True}
+        try:
+            result = original(_self, *args, **kwargs)
+        except BaseException as exc:
+            _safely(
+                record_llm_call,
+                recorder,
+                provider=provider,
+                request=request,
+                started=started,
+                error=exc,
+            )
+            raise
+        _safely(
+            record_llm_call,
+            recorder,
+            provider=provider,
+            request=request,
+            started=started,
+            response={"response": {"streamed": True, "captured": False}},
+        )
         return result
 
     return wrapper

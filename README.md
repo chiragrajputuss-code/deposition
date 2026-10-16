@@ -85,6 +85,44 @@ harness rather than self-report.
 | Countersigning at ingest | Phase 2 — [ADR 005](docs/decisions/005-signing-and-anchoring.md) |
 | Interlocking traces (agent-to-agent) | proposed — [ADR 009](docs/decisions/009-interlocking-traces.md) |
 
+## Current limitations
+
+Said here plainly, not left for someone to discover by filing an issue.
+
+**Streaming content is not captured.** `client.messages.create(..., stream=True)`
+and `client.chat.completions.create(..., stream=True)` are instrumented, but
+capturing the content would mean consuming or proxying the caller's own stream
+object, and the standing rule — recording must never break the host agent —
+outranks completeness. The call is still recorded, honestly incomplete: the
+request is there, and the response is a declared marker,
+`{"streamed": true, "captured": false}`, never a silently empty field. The same
+is true of `anthropic.messages.stream()`, the context-manager streaming API,
+which otherwise would have left **no event at all** — Deposition patches the
+call itself, records the request at that point (before any network I/O), and
+hands back the manager completely untouched, never entering it.
+
+This is not swept into "no known gaps" either. A trace with a streamed call
+reports `completeness.status: "streamed"`, distinct from an accidental drop,
+and the viewer flags it as a moment — because a declared limitation that quietly
+stops being declared, three versions later, is exactly the failure this project
+exists to catch in *other* people's records.
+
+**Tool-call capture is per framework, not universal.** Model calls are captured
+for anything built on the OpenAI or Anthropic SDKs; the causal edge from a tool
+call back to the model turn that asked for it needs one verified hook per
+framework — see [Tool capture](#tool-capture-verified-against-real-frameworks)
+for exactly which five, and which still have no hook at all.
+
+**Signing has the limits stated in [Signing](#signing):** a key on the same
+disk as the traces it signs raises the bar, it does not settle the question, and
+nothing proves *when* a run happened beyond what the signer asserts. Both are
+what [countersigning at ingest](docs/decisions/005-signing-and-anchoring.md)
+exists to fix, and it is not built.
+
+**Interlocking traces between two agents** — so each side's chain commits to
+the other's at the moment they interact — is a written spec,
+[ADR 009](docs/decisions/009-interlocking-traces.md), not shipped code.
+
 ## Tool capture: verified against real frameworks
 
 Model calls are captured by instrumenting the OpenAI and Anthropic SDKs

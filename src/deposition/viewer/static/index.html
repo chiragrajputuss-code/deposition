@@ -133,6 +133,7 @@ main { flex: 1; display: grid; grid-template-columns: 340px 1fr; min-height: 0; 
 .mo .k.error, .mo .k.violation { color: var(--bad); border: 1px solid var(--bad); }
 .mo .k.spike { color: var(--warn); border: 1px solid var(--warn); }
 .mo .k.tainted { color: var(--t-retrieval); border: 1px solid var(--t-retrieval); }
+.mo .k.uncaptured { color: var(--warn); border: 1px solid var(--warn); }
 .mo .d { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mo .d b { font-weight: 600; }
 .mo .s { color: var(--faint); font-size: 11px; }
@@ -334,6 +335,7 @@ function renderClaims() {
     if (c.status === "complete") return { level: "ok", value: "no known gaps", note: c.message };
     if (c.status === "inferred") return { level: "warn", value: `${c.adopted} inferred`, note: c.message };
     if (c.status === "lossy") return { level: "bad", value: `${c.dropped} dropped`, note: c.message };
+    if (c.status === "streamed") return { level: "warn", value: `${c.streamed} streamed`, note: c.message };
     return { level: "bad", value: "truncated", note: c.message };
   })();
 

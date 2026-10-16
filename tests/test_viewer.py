@@ -279,6 +279,83 @@ def test_completeness_flags_events_that_were_attributed_by_elimination(trace, tm
     assert load_trace(path)["completeness"]["status"] == "inferred"
 
 
+def test_completeness_flags_an_uncaptured_streamed_response(trace, tmp_path):
+    builder = ChainBuilder("run_streamed")
+    events = [
+        builder.append(EventType.RUN_START, {"agent": "a"}, ts=TS),
+        builder.append(
+            EventType.LLM_CALL,
+            {
+                "provider": "anthropic",
+                "streamed": True,
+                "response": {"streamed": True, "captured": False},
+            },
+            ts=TS,
+        ),
+        builder.append(
+            EventType.RUN_END,
+            {"status": "ok", "totals": {"steps": 1, "dropped": 0, "adopted": 0}},
+            ts=TS,
+        ),
+    ]
+    path = tmp_path / "run_streamed.jsonl"
+    path.write_text("".join(canonical_json(e) + "\n" for e in events), encoding="utf-8")
+
+    completeness = load_trace(path)["completeness"]
+    assert completeness["status"] == "streamed"
+    assert completeness["streamed"] == 1
+    assert completeness["ok"] is False  # a declared gap is still not "complete"
+
+
+def test_a_dropped_event_outranks_an_uncaptured_stream_in_the_completeness_verdict(trace, tmp_path):
+    # Both are true; the one that is the recorder's own fault is reported.
+    builder = ChainBuilder("run_both")
+    events = [
+        builder.append(EventType.RUN_START, {"agent": "a"}, ts=TS),
+        builder.append(
+            EventType.LLM_CALL,
+            {"provider": "anthropic", "response": {"streamed": True, "captured": False}},
+            ts=TS,
+        ),
+        builder.append(
+            EventType.RUN_END,
+            {"status": "ok", "totals": {"steps": 1, "dropped": 2, "adopted": 0}},
+            ts=TS,
+        ),
+    ]
+    path = tmp_path / "run_both.jsonl"
+    path.write_text("".join(canonical_json(e) + "\n" for e in events), encoding="utf-8")
+    assert load_trace(path)["completeness"]["status"] == "lossy"
+
+
+def test_an_uncaptured_streamed_call_is_a_flagged_moment(trace, tmp_path):
+    builder = ChainBuilder("run_streamed_digest")
+    events = [
+        builder.append(EventType.RUN_START, {"agent": "a"}, ts=TS),
+        builder.append(
+            EventType.LLM_CALL,
+            {"provider": "anthropic", "response": {"streamed": True, "captured": False}},
+            ts=TS,
+        ),
+        builder.append(
+            EventType.RUN_END, {"status": "ok", "totals": {"dropped": 0, "adopted": 0}}, ts=TS
+        ),
+    ]
+    path = tmp_path / "run_streamed_digest.jsonl"
+    path.write_text("".join(canonical_json(e) + "\n" for e in events), encoding="utf-8")
+
+    moments = load_trace(path)["digest"]["moments"]
+    assert [m["kind"] for m in moments] == ["uncaptured"]
+    assert moments[0]["seq"] == 1
+
+
+def test_a_normal_captured_llm_call_is_not_flagged_as_uncaptured(trace):
+    # A response with no "captured" key at all - the ordinary case - must not
+    # be mistaken for a declared gap.
+    moments = load_trace(trace)["digest"]["moments"]
+    assert not any(m["kind"] == "uncaptured" for m in moments)
+
+
 def test_a_run_with_no_run_end_is_reported_as_truncated(trace):
     lines = trace.read_text("utf-8").splitlines()[:-1]
     trace.write_text("\n".join(lines) + "\n", encoding="utf-8")

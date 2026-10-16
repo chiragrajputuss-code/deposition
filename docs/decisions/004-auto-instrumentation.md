@@ -1,6 +1,8 @@
 # 004 — Auto-instrumentation scope and causality
 
-**Status:** accepted · **Date:** 2026-09-27
+**Status:** accepted · **Date:** 2026-09-27 · amended by
+[012](012-tool-capture-shipped.md) (tool-call capture shipped) and
+[013](013-stream-entrypoint-capture.md) (`messages.stream()` is now patched)
 
 ## What is patched
 
