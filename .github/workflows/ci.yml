@@ -43,7 +43,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff
-      - run: ruff check src tests
+      - run: ruff check src tests scripts
 
   no-dependencies:
     name: installs with zero dependencies (ADR 003)
