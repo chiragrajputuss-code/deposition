@@ -11,6 +11,9 @@ htmlcov/
 # local traces produced by examples / manual runs. Anchored with a leading
 # slash: a bare `deposition/` would also exclude src/deposition/.
 /deposition/
+# example 14's output: *.jsonl is already ignored below, but this also
+# covers any .sig/.pem sidecar a future run might write beside it.
+.deposition-import/
 *.jsonl
 !tests/**/*.jsonl
 .DS_Store

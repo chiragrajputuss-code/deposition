@@ -26,9 +26,10 @@ src/deposition/
   taint.py         argument provenance: which tool values came from fetched content
   instrument/      auto-patching: openai.py, anthropic.py, tools.py (framework
                    hooks - re-verify against current releases per ADR 012)
+  importers/       other tools' session logs -> a trace (claude_code.py)
   exporters/       jsonl.py (local), http.py (hosted, Phase 2), otel.py (Phase 4)
   viewer/          FastAPI app + pre-built static UI
-  cli.py           deposition view / verify / audit / diff / keygen
+  cli.py           deposition view / verify / audit / diff / keygen / import / tail
 tests/             chain + schema tests are non-negotiable
 examples/          3 runnable example agents
 docs/decisions/    ADRs

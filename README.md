@@ -66,7 +66,7 @@ serving replay viewer on http://127.0.0.1:7878
 ## Status
 
 Pre-release, building in the open. Everything below is implemented and tested
-(283 tests) against real agent frameworks, with an independent ground-truth
+(317 tests) against real agent frameworks, with an independent ground-truth
 harness rather than self-report.
 
 | Piece | State |
@@ -76,8 +76,9 @@ harness rather than self-report.
 | Ed25519 signing | done — `[signing]` extra |
 | Mandates + `deposition audit` | done — [ADR 010](docs/decisions/010-mandates.md) |
 | Argument provenance (injection forensics) | done — prior art cited, [ADR 011](docs/decisions/011-claims-policy.md) |
+| Claude Code importer + live tail | done — see [Importing Claude Code](#importing-claude-code) |
 | Local `.jsonl` recording, blob externalisation | done |
-| CLI (`view` / `verify` / `audit` / `diff` / `keygen`) | done |
+| CLI (`view` / `verify` / `audit` / `diff` / `keygen` / `import` / `tail`) | done |
 | Local replay viewer, four-claim trust panel | done |
 | OpenAI / Anthropic auto-instrumentation | done (non-streaming) |
 | Streaming capture | not yet — request recorded, response is not |
@@ -217,6 +218,47 @@ produced it. The SDK fills this in where it can — a tool call caused by the LL
 message that requested it — and the viewer walks it backwards to answer "why did
 this happen?".
 
+## Importing Claude Code
+
+Claude Code already records what it did — every model turn, every `Bash`
+command, every file write — as JSONL under `~/.claude/projects/`. What it does
+not give you is a record anyone can check: the file is plain, mutable JSON, so
+"the agent ran this command against my repo" is an assertion by whoever holds
+the file.
+
+`deposition import claude-code` reads that transcript and rebuilds it as a
+hash-chained trace — verifiable, signable, and readable in the viewer above.
+With no path given, it finds the newest session Claude Code has recorded for
+the current directory on its own:
+
+```console
+$ deposition import claude-code
+imported /Users/you/.claude/projects/-Users-you-myrepo/a1b2c3d4-….jsonl
+  -> ./deposition/run_a1b2c3.jsonl  (238 events)
+
+  deposition verify ./deposition/run_a1b2c3.jsonl
+  deposition view   ./deposition/run_a1b2c3.jsonl
+```
+
+Every `Bash`, `Write`, `Edit` and `NotebookEdit` call is flagged
+`mutates_environment: true` in its body, and each one carries `caused_by`
+pointing at the model turn that asked for it — so "what did the agent actually
+change" and "why did it do that" are both one `deposition view` away, not a
+transcript to read by hand. Pass `--sign KEY.pem` to sign the imported trace
+the same way a live one is signed.
+
+`deposition tail claude-code` does the same conversion continuously, so
+`deposition view --no-browser` on its output shows a session as it happens
+rather than after it ends — see [example 14](examples/14_claude_code_session.py).
+
+**The honest grade.** This is an import, not a live recording. The source file
+was plain and mutable right up until the moment it was read, so the chain it
+produces attests "unchanged since the last import" — a window of seconds for
+`tail`, however long the session sat on disk first for a one-shot `import`. An
+evidence-grade version records at the moment of each tool call, through Claude
+Code's own hooks, and is a separate piece of work this command does not
+attempt.
+
 ## Privacy
 
 Your prompts are your data. `deposition.init(redact=...)` runs on every event
@@ -232,9 +274,9 @@ In local mode nothing leaves your machine at all.
 
 - [Trace schema](docs/decisions/002-schema-v0.md) and its [v1 canonicalisation](docs/decisions/008-canonical-json.md)
 - [Architecture decisions](docs/decisions/)
-- [Examples](examples/) — 13 runnable agents, including a disputed refund, a
+- [Examples](examples/) — 14 runnable agents, including a disputed refund, a
   regulated credit denial, a prompt-injection incident, a multi-agent handoff and
-  a GDPR erasure. All but one run with no API key and no network.
+  a GDPR erasure. All but two run with no API key and no network.
 
 ## License
 

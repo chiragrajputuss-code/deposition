@@ -1,4 +1,4 @@
-"""``deposition`` command line: view, verify, audit, diff, keygen.
+"""``deposition`` command line: view, verify, audit, diff, keygen, import, tail.
 
 Stdlib only. ``verify`` is the one that has to be beyond reproach - it is the
 command a user runs when they need to show someone else that a trace was not
@@ -21,7 +21,9 @@ import difflib
 import json
 import os
 import sys
+import time
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from . import __version__, signing
@@ -154,13 +156,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
     else:
         for path, result, signature in results:
             print(f"{result.summary()}  [{path}]")
-            if any(
-                isinstance(e, dict) and e.get("v") == "0.1" for e in _load(path)
-            ):
+            if any(isinstance(e, dict) and e.get("v") == "0.1" for e in _load(path)):
                 # ADR 008: v0 predates RFC 8785 canonicalisation, so only this
                 # SDK can verify it. Said out loud, never implied away.
-                print("  note: schema v0.1 trace - verifiable by this SDK only, "
-                      "predates RFC 8785 canonicalisation")
+                print(
+                    "  note: schema v0.1 trace - verifiable by this SDK only, "
+                    "predates RFC 8785 canonicalisation"
+                )
             for error in result.errors:
                 print(f"  {error}")
             if not result.ok:
@@ -254,6 +256,86 @@ def cmd_audit(args: argparse.Namespace) -> int:
             "compliance cannot be attested on a record that admits gaps."
         )
     return EXIT_OK if result.attestable else EXIT_BROKEN
+
+
+# -- import -------------------------------------------------------------------
+
+
+def cmd_import_claude_code(args: argparse.Namespace) -> int:
+    from .importers import claude_code
+
+    if args.transcript:
+        transcript = Path(args.transcript).expanduser()
+        if not transcript.exists():
+            _die(f"no such transcript: {transcript}")
+    else:
+        transcript = claude_code.discover_latest_session()
+        if transcript is None:
+            _die(
+                "no Claude Code session found for this directory.\n"
+                "  Pass one explicitly:  deposition import claude-code <session.jsonl>"
+            )
+
+    try:
+        target = claude_code.convert(transcript, Path(args.out))
+    except claude_code.TranscriptError as exc:
+        _die(str(exc))
+
+    events = sum(1 for _ in open(target, encoding="utf-8"))
+    print(f"imported {transcript}")
+    print(f"  -> {target}  ({events} events)")
+
+    if args.sign:
+        try:
+            key = signing.load_key(args.sign)
+        except SignatureError as exc:
+            _die(str(exc))
+        from .chain import verify_file
+        from .signing import sign_head, write_sidecar
+
+        result = verify_file(target)
+        write_sidecar(
+            sign_head(
+                key,
+                run_id=result.run_id,
+                head_hash=result.head_hash,
+                seq=result.events_checked - 1,
+                events=result.events_checked,
+            ),
+            target,
+        )
+        print(f"  signed with {key.public_hex[:12]}...")
+
+    print(f"\n  deposition verify {target}")
+    print(f"  deposition view   {target}")
+    return EXIT_OK
+
+
+# -- tail -----------------------------------------------------------------
+
+
+def cmd_tail_claude_code(args: argparse.Namespace) -> int:
+    from .importers import claude_code
+
+    project_dir = Path(args.project).expanduser() if args.project else None
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    watching = str(project_dir) if project_dir else str(claude_code.guess_project_dir())
+    print(f"deposition: watching {watching} every {args.interval}s", file=sys.stderr)
+    print(f"deposition: stable pointer at {out_dir / claude_code.CURRENT_POINTER}", file=sys.stderr)
+    print("deposition: press Ctrl+C to stop", file=sys.stderr)
+
+    state: dict[str, Any] = {}
+    try:
+        while True:
+            target = claude_code.tail_once(out_dir, project_dir=project_dir, state=state)
+            if target is not None:
+                events = sum(1 for _ in open(target, encoding="utf-8"))
+                print(f"{time.strftime('%H:%M:%S')}  {target.name}  ({events} events)")
+            time.sleep(args.interval)
+    except KeyboardInterrupt:  # pragma: no cover - interactive
+        return 130
 
 
 # -- view -------------------------------------------------------------------
@@ -407,6 +489,41 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit = sub.add_parser("audit", help="check a trace against the mandate it carries")
     p_audit.add_argument("trace", help="a .jsonl trace file whose run_start records a mandate")
     p_audit.set_defaults(func=cmd_audit)
+
+    p_import = sub.add_parser("import", help="convert another tool's session log into a trace")
+    import_sub = p_import.add_subparsers(dest="source", metavar="<source>")
+
+    p_import_cc = import_sub.add_parser(
+        "claude-code", help="convert a Claude Code session transcript"
+    )
+    p_import_cc.add_argument(
+        "transcript",
+        nargs="?",
+        help="path to a Claude Code session .jsonl; default: the newest session "
+        "Claude Code has recorded for the current directory",
+    )
+    p_import_cc.add_argument("--out", default="./deposition", help="output directory")
+    p_import_cc.add_argument(
+        "--sign", metavar="KEY.pem", help="Ed25519 private key to sign the imported trace"
+    )
+    p_import_cc.set_defaults(func=cmd_import_claude_code)
+
+    p_tail = sub.add_parser("tail", help="follow another tool's session log as a live trace")
+    tail_sub = p_tail.add_subparsers(dest="source", metavar="<source>")
+
+    p_tail_cc = tail_sub.add_parser(
+        "claude-code", help="follow the newest Claude Code session for this directory"
+    )
+    p_tail_cc.add_argument(
+        "--project",
+        default=None,
+        help="directory of .jsonl sessions to watch; default: discovered for this directory",
+    )
+    p_tail_cc.add_argument("--out", default="./deposition/live", help="output directory")
+    p_tail_cc.add_argument(
+        "--interval", type=float, default=2.0, help="seconds between checks (default: 2.0)"
+    )
+    p_tail_cc.set_defaults(func=cmd_tail_claude_code)
 
     p_diff = sub.add_parser("diff", help="compare the steps of two runs")
     p_diff.add_argument("left", help="baseline trace")

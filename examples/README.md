@@ -1,10 +1,17 @@
 # Examples
 
-Run any of these from the repository root. Each writes a trace to `./deposition/`.
+Run any of these from the repository root. Each writes a trace to `./deposition/`,
+except `14`, which writes to `./.deposition-import/` — a name chosen on purpose so
+it never collides with a directory actually called `deposition`, including this
+project's own checkout (see its docstring for the real import that found this).
+
 Everything except `03` runs with **no API key and no network** — the model calls
 are stand-ins so the scenarios stay runnable, free and deterministic. Against a
 real OpenAI or Anthropic client, `deposition.init()` records those calls on its
-own and no logging code changes.
+own and no logging code changes. `14` needs neither, but needs an existing
+Claude Code session on your machine instead — it imports yours, never a canned
+one, because a coding-agent transcript is exactly the kind of data this
+project's own privacy stance says should never be bundled as a fixture.
 
 ## Start here
 
@@ -32,6 +39,7 @@ answer the question.
 | [`11_model_fallback_diff.py`](11_model_fallback_diff.py) | The provider failed and the agent fell back to a cheaper model. Two runs, one `deposition diff`. |
 | [`12_gdpr_erasure.py`](12_gdpr_erasure.py) | Prove what was deleted and what was retained under exemption — when the database can no longer tell you. |
 | [`13_pii_redaction.py`](13_pii_redaction.py) | Record an agent that handles card numbers and medical ids **without** recording them. `redact` runs before anything is hashed or written. |
+| [`14_claude_code_session.py`](14_claude_code_session.py) | Needs an existing Claude Code session on this machine. What did the coding agent actually change, and why — imported from `~/.claude/projects/`, not a canned transcript. |
 
 ## The thing to actually try
 
