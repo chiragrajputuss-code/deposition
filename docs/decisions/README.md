@@ -17,6 +17,7 @@ evenings.
 | [009](009-interlocking-traces.md) | Interlocking traces: receipts between agents | **proposed** |
 | [010](010-mandates.md) | Mandates: record what the run was allowed to do | accepted |
 | [011](011-claims-policy.md) | What we claim, and what we never claim | accepted |
+| [012](012-tool-capture-shipped.md) | Tool capture shipped; ADR 004's Phase 4 deferral is void | accepted |
 
 New ADRs are numbered sequentially and never edited after they are accepted —
 supersede them with a new one instead, so the reasoning stays readable in order.

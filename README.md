@@ -5,6 +5,15 @@
 [![Python](https://img.shields.io/pypi/pyversions/deposition)](https://pypi.org/project/deposition/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
+Tool capture verified against real packages, not self-reported — see
+[the harness](#tool-capture-verified-against-real-frameworks):
+
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.2.15-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
+[![CrewAI](https://img.shields.io/badge/CrewAI-1.15.28-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
+[![OpenAI Agents SDK](https://img.shields.io/badge/OpenAI%20Agents%20SDK-0.24.0-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
+[![Pydantic AI](https://img.shields.io/badge/Pydantic%20AI-2.57.0-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
+[![AutoGen](https://img.shields.io/badge/AutoGen-0.7.5-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
+
 **A sworn record of what your AI agent actually did.**
 
 ![A signed refund trace, forged, and caught: the hash chain still verifies while the signature fails](docs/media/demo.gif)
@@ -71,10 +80,40 @@ harness rather than self-report.
 | CLI (`view` / `verify` / `audit` / `diff` / `keygen`) | done |
 | Local replay viewer, four-claim trust panel | done |
 | OpenAI / Anthropic auto-instrumentation | done (non-streaming) |
-| Tool capture: LangGraph, CrewAI, OpenAI Agents SDK, Pydantic AI, AutoGen | done |
 | Streaming capture | not yet — request recorded, response is not |
 | Countersigning at ingest | Phase 2 — [ADR 005](docs/decisions/005-signing-and-anchoring.md) |
 | Interlocking traces (agent-to-agent) | proposed — [ADR 009](docs/decisions/009-interlocking-traces.md) |
+
+## Tool capture: verified against real frameworks
+
+Model calls are captured by instrumenting the OpenAI and Anthropic SDKs
+directly, so anything built on them is covered automatically. Tool calls and
+the causal edge between them need one hook per framework, because each
+framework funnels tool execution through its own internal method - so this is
+re-verified against the real package, not assumed from the docs, using an
+independent ground-truth harness: a stub model server plus a spy wrapped
+around the tool function, counting what actually happened outside Deposition
+entirely.
+
+Last verified 2026-10-16, against the current release of each package:
+
+| Framework | Version tested | Model calls | Tools + causal edge |
+| --- | --- | --- | --- |
+| [LangGraph](https://github.com/langchain-ai/langgraph) / LangChain | 1.2.15 (`langchain-core` 1.6.11) | yes | yes |
+| [CrewAI](https://github.com/crewAIInc/crewAI) | 1.15.28 | yes | yes |
+| [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) | 0.24.0 | yes | yes |
+| [Pydantic AI](https://github.com/pydantic/pydantic-ai) | 2.57.0 | yes | yes |
+| [AutoGen](https://github.com/microsoft/autogen) | 0.7.5 | yes | yes |
+| smolagents, aider, anything on litellm | - | yes | model calls only |
+
+The hook points are not stable across versions by nature - two have already
+moved underneath this project. Pydantic AI's inviting-looking `handle_call` has
+never been the real path; the actual one is `execute_tool_call`, found by
+spying on every candidate rather than trusting the method name. LangGraph's
+`langgraph.prebuilt.create_react_agent` is deprecated as of 1.x and removed in
+2.0 in favour of `langchain.agents.create_agent` - the harness follows it so
+the compatibility claim keeps meaning something instead of quietly describing
+a version nobody runs anymore.
 
 ## Install
 
