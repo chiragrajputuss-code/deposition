@@ -8,7 +8,7 @@
 Tool capture verified against real packages, not self-reported — see
 [the harness](#tool-capture-verified-against-real-frameworks):
 
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.2.15-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.2.16-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
 [![CrewAI](https://img.shields.io/badge/CrewAI-1.15.28-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
 [![OpenAI Agents SDK](https://img.shields.io/badge/OpenAI%20Agents%20SDK-0.24.0-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic%20AI-2.57.0-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
@@ -134,11 +134,11 @@ independent ground-truth harness: a stub model server plus a spy wrapped
 around the tool function, counting what actually happened outside Deposition
 entirely.
 
-Last verified 2026-10-16, against the current release of each package:
+Last verified 2026-10-17, against the current release of each package:
 
 | Framework | Version tested | Model calls | Tools + causal edge |
 | --- | --- | --- | --- |
-| [LangGraph](https://github.com/langchain-ai/langgraph) / LangChain | 1.2.15 (`langchain-core` 1.6.11) | yes | yes |
+| [LangGraph](https://github.com/langchain-ai/langgraph) / LangChain | 1.2.16 (`langchain-core` 1.6.12) | yes | yes |
 | [CrewAI](https://github.com/crewAIInc/crewAI) | 1.15.28 | yes | yes |
 | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) | 0.24.0 | yes | yes |
 | [Pydantic AI](https://github.com/pydantic/pydantic-ai) | 2.57.0 | yes | yes |
