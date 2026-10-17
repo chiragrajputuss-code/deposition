@@ -1,4 +1,4 @@
-"""``deposition`` command line: view, verify, audit, diff, keygen, import, tail.
+"""``deposition`` command line: demo, view, verify, audit, diff, keygen, import, tail.
 
 Stdlib only. ``verify`` is the one that has to be beyond reproach - it is the
 command a user runs when they need to show someone else that a trace was not
@@ -341,6 +341,37 @@ def cmd_tail_claude_code(args: argparse.Namespace) -> int:
 # -- view -------------------------------------------------------------------
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    from . import _demo
+
+    try:
+        from .viewer import serve
+    except ImportError as exc:  # pragma: no cover - same guard as cmd_view, same reason
+        _die(
+            f"the local viewer needs its extra dependencies ({exc}).\n"
+            "  Install them with:  pip install 'deposition[viewer]'"
+        )
+
+    print(
+        "deposition: opening a bundled example run - no API key, no network, "
+        "nothing leaves your machine",
+        file=sys.stderr,
+    )
+    print(
+        "deposition: an agent asked to summarise a report got prompt-injected "
+        "by the report itself - watch what was caught",
+        file=sys.stderr,
+    )
+
+    return serve(
+        _demo.trace_path(),
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_browser,
+        public_key=_demo.public_key(),
+    )
+
+
 def cmd_view(args: argparse.Namespace) -> int:
     _load(args.trace)  # fail fast on a missing or unreadable file
 
@@ -450,6 +481,14 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"deposition {__version__} (trace schema v{SCHEMA_VERSION})",
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
+
+    p_demo = sub.add_parser(
+        "demo", help="open a bundled example run in the viewer - no setup needed"
+    )
+    p_demo.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"default {DEFAULT_PORT}")
+    p_demo.add_argument("--host", default="127.0.0.1", help="default 127.0.0.1 (localhost only)")
+    p_demo.add_argument("--no-browser", action="store_true", help="do not open a browser")
+    p_demo.set_defaults(func=cmd_demo)
 
     p_view = sub.add_parser("view", help="replay a run in the local viewer")
     p_view.add_argument("trace", help="path to a .jsonl trace file")

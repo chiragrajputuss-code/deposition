@@ -37,6 +37,25 @@ is a posture: never in your agent's hot path, never a probabilistic judgment
 sealed as fact, never one green light where four separate claims belong — and
 independent of every party it records.
 
+## Try it now
+
+No API key, no account, no config - a bundled run opens straight in the viewer:
+
+```console
+$ pip install 'deposition[viewer]'
+$ deposition demo
+```
+
+It is a real recorded run, not a mockup: an agent asked to summarise a vendor
+report gets prompt-injected by content inside that report, and Deposition shows
+exactly what happened - the chain stays intact, the signature still verifies,
+the record is complete, and it still catches a mandate violation, because
+"nothing was altered" and "it stayed inside its authority" are different claims.
+Three episodes, a tool-call causal chain to walk backwards, a mutation, a
+failure, one real catch. Nothing it shows is staged after the fact - see
+[`scripts/generate_demo_trace.py`](scripts/generate_demo_trace.py) for exactly
+how it was produced.
+
 ```python
 import deposition
 
@@ -78,7 +97,7 @@ harness rather than self-report.
 | Argument provenance (injection forensics) | done — prior art cited, [ADR 011](docs/decisions/011-claims-policy.md) |
 | Claude Code importer + live tail | done — see [Importing Claude Code](#importing-claude-code) |
 | Local `.jsonl` recording, blob externalisation | done |
-| CLI (`view` / `verify` / `audit` / `diff` / `keygen` / `import` / `tail`) | done |
+| CLI (`demo` / `view` / `verify` / `audit` / `diff` / `keygen` / `import` / `tail`) | done |
 | Local replay viewer, four-claim trust panel | done |
 | OpenAI / Anthropic auto-instrumentation | done (non-streaming) |
 | Streaming capture | not yet — request recorded, response is not |

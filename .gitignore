@@ -16,4 +16,8 @@ htmlcov/
 .deposition-import/
 *.jsonl
 !tests/**/*.jsonl
+# the trace bundled with `deposition demo` - the one .jsonl outside tests/
+# that is meant to ship, not a trace produced by running the SDK.
+!src/deposition/_demo/run_demo.jsonl
 .DS_Store
+/_demo_build/
