@@ -293,6 +293,119 @@ def test_context_delta_is_growth_since_the_previous_turn(tmp_path):
     assert calls[1]["body"]["context_delta"] == 50
 
 
+# -- one response, written as several records ------------------------------------
+
+
+def split_response(response_id, blocks, *, usage, final_usage=None, ts=TS):
+    """One API response the way Claude Code writes it: a record per content
+    block, each repeating the response's usage. The last record may carry a
+    larger output count than the earlier ones, written mid-stream."""
+    records = []
+    for i, block in enumerate(blocks):
+        last = i == len(blocks) - 1
+        records.append(
+            {
+                "type": "assistant",
+                "timestamp": ts,
+                "message": {
+                    "id": response_id,
+                    "model": "claude-opus-5",
+                    "content": [block],
+                    "usage": (final_usage or usage) if last else usage,
+                    "stop_reason": "tool_use" if last else None,
+                },
+            }
+        )
+    return records
+
+
+def split_session():
+    usage = {"input_tokens": 3, "cache_creation_input_tokens": 1_000, "output_tokens": 10}
+    final = dict(usage, output_tokens=150)
+    return [
+        user_prompt("go", ts=TS) | header(),
+        *split_response(
+            "msg_1",
+            [
+                {"type": "thinking", "thinking": "..."},
+                {"type": "text", "text": "Running the tests."},
+                {"type": "tool_use", "id": "a", "name": "Bash", "input": {"command": "ls"}},
+            ],
+            usage=usage,
+            final_usage=final,
+        ),
+        tool_result("a", "files..."),
+    ]
+
+
+def test_a_response_split_across_records_becomes_one_model_turn(tmp_path):
+    transcript = write_transcript(tmp_path / "s.jsonl", split_session())
+    events = [
+        json.loads(line)
+        for line in convert(transcript, tmp_path / "out").read_text("utf-8").splitlines()
+    ]
+    calls = [e for e in events if e["type"] == "llm_call"]
+    assert len(calls) == 1
+    assert calls[0]["body"]["response"]["text"] == "Running the tests."
+    assert calls[0]["body"]["response"]["tool_calls"] == [{"name": "Bash", "id": "a"}]
+    assert calls[0]["body"]["stop_reason"] == "tool_use"
+
+
+def test_a_split_responses_tokens_are_counted_once_using_the_final_usage(tmp_path):
+    """Every record repeats the same usage, so summing per record counted one
+    response's tokens two or three times on real sessions."""
+    transcript = write_transcript(tmp_path / "s.jsonl", split_session())
+    events = [
+        json.loads(line)
+        for line in convert(transcript, tmp_path / "out").read_text("utf-8").splitlines()
+    ]
+    call = next(e for e in events if e["type"] == "llm_call")
+    assert call["body"]["usage"]["total_tokens"] == 3 + 1_000 + 150
+    assert events[-1]["body"]["totals"]["tokens"] == 3 + 1_000 + 150
+
+
+def test_tool_calls_from_a_split_response_link_to_its_one_turn_even_when_interleaved(tmp_path):
+    usage = {"input_tokens": 3, "output_tokens": 10}
+    first, second = split_response(
+        "msg_1",
+        [
+            {"type": "tool_use", "id": "a", "name": "Read", "input": {}},
+            {"type": "tool_use", "id": "b", "name": "Bash", "input": {}},
+        ],
+        usage=usage,
+    )
+    records = [
+        user_prompt("go", ts=TS) | header(),
+        first,
+        tool_result("a", "contents"),
+        second,
+        tool_result("b", "ok"),
+    ]
+    transcript = write_transcript(tmp_path / "s.jsonl", records)
+    target = convert(transcript, tmp_path / "out")
+    events = [json.loads(line) for line in target.read_text("utf-8").splitlines()]
+    turn = next(e for e in events if e["type"] == "llm_call")
+    tools = [e for e in events if e["type"] == "tool_call"]
+    assert [t["body"]["tool"] for t in tools] == ["Read", "Bash"]
+    assert all(t["caused_by"] == [turn["seq"]] for t in tools)
+    assert verify_file(target).ok
+
+
+def test_a_tool_use_repeated_within_one_response_is_recorded_once(tmp_path):
+    block = {"type": "tool_use", "id": "a", "name": "Bash", "input": {}}
+    records = [
+        user_prompt("go", ts=TS) | header(),
+        *split_response("msg_1", [block, block], usage={"input_tokens": 3, "output_tokens": 1}),
+        tool_result("a", "ok"),
+    ]
+    transcript = write_transcript(tmp_path / "s.jsonl", records)
+    events = [
+        json.loads(line)
+        for line in convert(transcript, tmp_path / "out").read_text("utf-8").splitlines()
+    ]
+    assert len([e for e in events if e["type"] == "tool_call"]) == 1
+
+
 # -- malformed input ------------------------------------------------------------
 
 

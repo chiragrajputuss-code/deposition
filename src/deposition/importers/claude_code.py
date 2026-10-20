@@ -94,8 +94,9 @@ def _tokens(usage: dict[str, Any]) -> int:
 
     Cache *reads* are deliberately excluded. The same cached prefix is re-read
     on every turn, so summing ``cache_read_input_tokens`` across a long session
-    counts the same context hundreds of times - measured once on a real 500+
-    turn session, it overstated token usage by roughly 40x. A trace that
+    counts the same context hundreds of times - measured on four real
+    sessions of 800-5,500 API calls, it overstated token usage by 24-50x,
+    growing with session length. A trace that
     reports a number nobody can reconcile is worse than one that reports less.
     """
     if not isinstance(usage, dict):
@@ -116,6 +117,41 @@ def _context_tokens(usage: dict[str, Any]) -> int:
         int(usage.get(k) or 0)
         for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
     )
+
+
+def _merge_responses(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """One entry per API response, keyed by ``message.id``.
+
+    Claude Code writes a separate record for each content block of a response
+    (thinking, text, each tool_use), and every one repeats the response's full
+    ``usage``. Imported record by record, one response became two or three
+    model turns and its tokens were counted two or three times. Later records
+    carry the final usage and stop_reason, since earlier ones were written
+    mid-stream, so the last value wins.
+    """
+    merged: dict[str, dict[str, Any]] = {}
+    for record in records:
+        if record.get("type") != "assistant":
+            continue
+        message = record.get("message") or {}
+        response_id = message.get("id")
+        if not response_id:
+            continue
+        entry = merged.setdefault(
+            response_id, {"content": [], "usage": {}, "stop_reason": None, "tool_ids": set()}
+        )
+        content = message.get("content")
+        for block in content if isinstance(content, list) else []:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                if block.get("id") in entry["tool_ids"]:
+                    continue
+                entry["tool_ids"].add(block.get("id"))
+            entry["content"].append(block)
+        if message.get("usage"):
+            entry["usage"] = message["usage"]
+        if message.get("stop_reason"):
+            entry["stop_reason"] = message["stop_reason"]
+    return merged
 
 
 # -- conversion ----------------------------------------------------------------
@@ -144,6 +180,9 @@ def convert(path: str | Path, out_dir: str | Path) -> Path:
     turns = [r for r in records if r.get("type") in ("assistant", "user")]
     if not turns:
         raise TranscriptError(f"no model turns found in {path}")
+
+    responses = _merge_responses(records)
+    emitted: set[str] = set()
 
     first = turns[0]
     run_id = "run_" + (first.get("sessionId") or path.stem)[:6]
@@ -182,10 +221,22 @@ def convert(path: str | Path, out_dir: str | Path) -> Path:
         content = message.get("content")
 
         if kind == "assistant":
+            usage = message.get("usage") or {}
+            stop_reason = message.get("stop_reason")
+            response_id = message.get("id")
+            if response_id in responses:
+                if response_id in emitted:
+                    continue
+                emitted.add(response_id)
+                merged = responses[response_id]
+                content, usage, stop_reason = (
+                    merged["content"],
+                    merged["usage"],
+                    merged["stop_reason"],
+                )
             tool_uses = [
                 b for b in (content or []) if isinstance(b, dict) and b.get("type") == "tool_use"
             ]
-            usage = message.get("usage") or {}
             tokens = _tokens(usage)
             totals["tokens"] += tokens
             context = _context_tokens(usage)
@@ -215,7 +266,7 @@ def convert(path: str | Path, out_dir: str | Path) -> Path:
                             if usage.get(k) is not None
                         },
                     },
-                    "stop_reason": message.get("stop_reason"),
+                    "stop_reason": stop_reason,
                 },
                 ts=ts,
             )
