@@ -235,26 +235,55 @@ def test_a_failed_tool_result_is_recorded_as_an_error_not_a_result(tmp_path):
 # -- token accounting: the 40x regression, pinned ------------------------------
 
 
-def test_cache_reads_are_excluded_from_the_token_total(tmp_path):
-    """The bug that overstated a real session by ~40x: cache_read_input_tokens
-    recurs on every turn, so summing it across a session counts the same
-    context hundreds of times. total_tokens must never include it."""
-    records = [
-        user_prompt("go", ts=TS) | header(),
-        assistant_turn(
-            usage={
-                "input_tokens": 50,
-                "output_tokens": 10,
-                "cache_read_input_tokens": 50_000,
-                "cache_creation_input_tokens": 0,
-            }
-        ),
-    ]
+FOUR_CATEGORIES = {
+    "input_tokens": 2,
+    "cache_read_input_tokens": 22_858,
+    "cache_creation_input_tokens": 14_754,
+    "output_tokens": 534,
+}
+
+
+def test_total_tokens_counts_all_four_categories(tmp_path):
+    records = [user_prompt("go", ts=TS) | header(), assistant_turn(usage=FOUR_CATEGORIES)]
     transcript = write_transcript(tmp_path / "s.jsonl", records)
     target = convert(transcript, tmp_path / "out")
     events = [json.loads(line) for line in target.read_text("utf-8").splitlines()]
     call = next(e for e in events if e["type"] == "llm_call")
-    assert call["body"]["usage"]["total_tokens"] == 60  # 50 + 10, not +50,000
+    assert call["body"]["usage"]["total_tokens"] == 2 + 22_858 + 14_754 + 534
+
+
+def test_the_subtotal_is_labelled_and_excludes_cache_reads_but_includes_output(tmp_path):
+    """Summed over a session, cache reads recount the same prefix every turn, so
+    the subtotal without them answers a different question from the total -
+    both are recorded, under names that say what they count."""
+    records = [user_prompt("go", ts=TS) | header(), assistant_turn(usage=FOUR_CATEGORIES)]
+    transcript = write_transcript(tmp_path / "s.jsonl", records)
+    target = convert(transcript, tmp_path / "out")
+    events = [json.loads(line) for line in target.read_text("utf-8").splitlines()]
+    call = next(e for e in events if e["type"] == "llm_call")
+    assert call["body"]["usage"]["tokens_excl_cache_reads"] == 2 + 14_754 + 534
+    assert call["body"]["usage"]["detail"] == FOUR_CATEGORIES
+
+
+def test_run_end_carries_both_the_total_and_the_subtotal(tmp_path):
+    second = {
+        "input_tokens": 2,
+        "cache_read_input_tokens": 37_612,
+        "cache_creation_input_tokens": 1_070,
+        "output_tokens": 182,
+    }
+    records = [
+        user_prompt("go", ts=TS) | header(),
+        assistant_turn(usage=FOUR_CATEGORIES),
+        assistant_turn(usage=second),
+    ]
+    transcript = write_transcript(tmp_path / "s.jsonl", records)
+    target = convert(transcript, tmp_path / "out")
+    totals = [json.loads(line) for line in target.read_text("utf-8").splitlines()][-1]["body"][
+        "totals"
+    ]
+    assert totals["tokens"] == 77_014
+    assert totals["tokens_excl_cache_reads"] == 16_544
 
 
 def test_context_tokens_includes_cache_reads_because_the_model_did_see_them(tmp_path):

@@ -292,6 +292,8 @@ function renderHeader() {
   const bits = [];
   if (t.steps != null) bits.push(`<b>${t.steps}</b> steps`);
   if (t.tokens) bits.push(`<b>${t.tokens.toLocaleString()}</b> tokens`);
+  if (t.tokens_excl_cache_reads != null)
+    bits.push(`<b>${t.tokens_excl_cache_reads.toLocaleString()}</b> excl. cache reads`);
   if (t.cost_usd) bits.push(`<b>$${Number(t.cost_usd).toFixed(4)}</b>`);
   if (t.duration_ms) bits.push(`<b>${(t.duration_ms / 1000).toFixed(2)}s</b>`);
   if (run.status) bits.push(`status <b>${run.status}</b>`);
@@ -495,6 +497,8 @@ function renderFacts(ev) {
   if (ev.type === "llm_call") {
     add("model", b["gen_ai.request.model"] || b.provider);
     add("tokens", b.usage?.total_tokens != null ? n(b.usage.total_tokens) : null);
+    if (b.usage?.tokens_excl_cache_reads != null)
+      add("excl. cache reads", n(b.usage.tokens_excl_cache_reads));
     if (b.context_tokens != null) {
       add("context", n(b.context_tokens));
       add("grew by", (b.context_delta >= 0 ? "+" : "") + n(b.context_delta || 0));
@@ -512,6 +516,8 @@ function renderFacts(ev) {
     add("status", b.status);
     add("steps", t.steps);
     if (t.tokens != null) add("tokens", n(t.tokens));
+    if (t.tokens_excl_cache_reads != null)
+      add("excl. cache reads", n(t.tokens_excl_cache_reads));
     if (t.cost_usd) add("cost", "$" + Number(t.cost_usd).toFixed(4));
     add("dropped", t.dropped);
     add("inferred", t.adopted);

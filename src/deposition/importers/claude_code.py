@@ -89,21 +89,38 @@ def _text(content: Any) -> str:
     return ""
 
 
-def _tokens(usage: dict[str, Any]) -> int:
-    """Fresh tokens for one turn: input + output + cache writes.
+def _total_tokens(usage: dict[str, Any]) -> int:
+    """Every token one request processed: uncached input, cache reads, cache
+    writes and output."""
+    if not isinstance(usage, dict):
+        return 0
+    return sum(
+        int(usage.get(k) or 0)
+        for k in (
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+            "output_tokens",
+        )
+    )
 
-    Cache *reads* are deliberately excluded. The same cached prefix is re-read
-    on every turn, so summing ``cache_read_input_tokens`` across a long session
-    counts the same context hundreds of times - measured on four real
-    sessions of 800-5,500 API calls, it overstated token usage by 24-50x,
-    growing with session length. A trace that
-    reports a number nobody can reconcile is worse than one that reports less.
+
+def _tokens_excl_cache_reads(usage: dict[str, Any]) -> int:
+    """Uncached input + cache writes + output: what was new on this request.
+
+    Neither this nor the total is wrong; they answer different questions. Each
+    turn re-reads the whole cached prefix, so summed over a session the total
+    grows with turns x context while this subtotal does not - on four real
+    sessions of 800-5,500 API calls the total came out 24-50x larger. Both are
+    recorded under names that say what they count, beside the four raw
+    counters, so neither reads as a correction of the other. Cost is a separate
+    calculation, since each category is priced differently.
     """
     if not isinstance(usage, dict):
         return 0
     return sum(
         int(usage.get(k) or 0)
-        for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens")
+        for k in ("input_tokens", "cache_creation_input_tokens", "output_tokens")
     )
 
 
@@ -210,7 +227,7 @@ def convert(path: str | Path, out_dir: str | Path) -> Path:
 
     #: tool_use_id -> seq of the model turn that requested it, for causality.
     requested: dict[str, int] = {}
-    totals = {"tokens": 0, "mutating": 0, "tools": 0}
+    totals = {"tokens": 0, "tokens_excl_cache_reads": 0, "mutating": 0, "tools": 0}
     #: Context seen by the previous model turn, for per-turn growth deltas.
     previous_context = 0
 
@@ -237,8 +254,10 @@ def convert(path: str | Path, out_dir: str | Path) -> Path:
             tool_uses = [
                 b for b in (content or []) if isinstance(b, dict) and b.get("type") == "tool_use"
             ]
-            tokens = _tokens(usage)
+            tokens = _total_tokens(usage)
+            subtotal = _tokens_excl_cache_reads(usage)
             totals["tokens"] += tokens
+            totals["tokens_excl_cache_reads"] += subtotal
             context = _context_tokens(usage)
             sealed = builder.append(
                 "llm_call",
@@ -255,6 +274,7 @@ def convert(path: str | Path, out_dir: str | Path) -> Path:
                     },
                     "usage": {
                         "total_tokens": tokens,
+                        "tokens_excl_cache_reads": subtotal,
                         "detail": {
                             k: usage.get(k)
                             for k in (
@@ -311,6 +331,7 @@ def convert(path: str | Path, out_dir: str | Path) -> Path:
                 "totals": {
                     "steps": len(events) - 1,
                     "tokens": totals["tokens"],
+                    "tokens_excl_cache_reads": totals["tokens_excl_cache_reads"],
                     "tool_calls": totals["tools"],
                     "mutating_tool_calls": totals["mutating"],
                     "dropped": 0,
