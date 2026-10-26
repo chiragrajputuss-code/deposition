@@ -24,6 +24,10 @@ What a trace shows, if this script says so:
   against it.
 * Which tool definitions the model was shown, as digests, for calls made
   through the OpenAI or Anthropic SDK - sealed by the same chain.
+* That the trace existed no later than a time asserted by an independent
+  timestamp authority, if a ``.tsr`` is beside it. This script checks the
+  token covers this trace's head and prints the ``openssl ts -verify``
+  command for the authority's signature; it never says "verified" for it.
 
 What a trace does not show:
 
@@ -32,8 +36,8 @@ What a trace does not show:
   complete, internally consistent, correctly signed chain for a run that never
   occurred.
 * That the signing key was used only by you, that an external side effect
-  succeeded, or when the run happened - timestamps are asserted by the machine
-  that wrote them.
+  succeeded, or when the events happened - event timestamps are asserted by
+  the machine that wrote them.
 * Completeness where events were dropped. Dropped events are counted, and
   this script reports the count.
 
@@ -628,6 +632,201 @@ def verify_sidecar(
     return result(VERIFIED, f"signature verified against {public_key[:12]}...")
 
 
+# -- timestamp.py: just enough DER to read an RFC 3161 token -------------------
+
+SHA256_OID = "2.16.840.1.101.3.4.2.1"
+_SIGNED_DATA_OID = "1.2.840.113549.1.7.2"
+_TST_INFO_OID = "1.2.840.113549.1.9.16.1.4"
+
+TS_NONE = "none"
+TS_UNAVAILABLE = "unavailable"
+TS_UNVERIFIED = "unverified"
+TS_IMPRINT_MISMATCH = "imprint_mismatch"
+TS_MALFORMED = "malformed"
+TS_FAILED = {TS_IMPRINT_MISMATCH, "bad_timestamp", TS_MALFORMED}
+
+
+class TimestampError(Exception):
+    """A response could not be parsed."""
+
+
+def _decode_oid(content: bytes) -> str:
+    if not content:
+        raise TimestampError("empty OID")
+    parts = [content[0] // 40, content[0] % 40]
+    value = 0
+    for byte in content[1:]:
+        value = (value << 7) | (byte & 0x7F)
+        if not byte & 0x80:
+            parts.append(value)
+            value = 0
+    return ".".join(str(p) for p in parts)
+
+
+def _children(data: bytes) -> list[tuple[int, bytes]]:
+    out, i = [], 0
+    while i < len(data):
+        if i + 2 > len(data):
+            raise TimestampError("truncated DER")
+        tag, first = data[i], data[i + 1]
+        i += 2
+        if first & 0x80:
+            count = first & 0x7F
+            if count == 0 or count > 4 or i + count > len(data):
+                raise TimestampError("unsupported DER length")
+            length = int.from_bytes(data[i : i + count], "big")
+            i += count
+        else:
+            length = first
+        if i + length > len(data):
+            raise TimestampError("truncated DER")
+        out.append((tag, data[i : i + length]))
+        i += length
+    return out
+
+
+def _only(data: bytes, tag: int, what: str) -> bytes:
+    items = _children(data)
+    if len(items) != 1 or items[0][0] != tag:
+        raise TimestampError(f"expected a single {what}")
+    return items[0][1]
+
+
+@dataclass(frozen=True)
+class TimestampToken:
+    status: int
+    imprint_algorithm: str
+    imprint: str
+    gen_time: str | None
+    nonce: int | None
+
+
+def parse_response(der: bytes) -> TimestampToken:
+    """Read a ``TimeStampResp`` down to its ``TSTInfo``, without checking its signature."""
+    response = _children(_only(der, 0x30, "TimeStampResp"))
+    if not response or response[0][0] != 0x30:
+        raise TimestampError("missing PKIStatusInfo")
+    status_items = _children(response[0][1])
+    if not status_items or status_items[0][0] != 0x02:
+        raise TimestampError("missing PKIStatus")
+    status = int.from_bytes(status_items[0][1], "big", signed=True)
+    if status not in (0, 1):
+        raise TimestampError(f"authority refused the request (PKIStatus {status})")
+    if len(response) < 2 or response[1][0] != 0x30:
+        raise TimestampError("granted, but no timeStampToken")
+
+    content_info = _children(response[1][1])
+    if (
+        len(content_info) < 2
+        or content_info[0][0] != 0x06
+        or _decode_oid(content_info[0][1]) != _SIGNED_DATA_OID
+    ):
+        raise TimestampError("timeStampToken is not CMS SignedData")
+    signed_data = _children(_only(content_info[1][1], 0x30, "SignedData"))
+    encap = next((c for t, c in signed_data if t == 0x30), None)
+    if encap is None:
+        raise TimestampError("SignedData has no encapsulated content")
+    encap_items = _children(encap)
+    if (
+        len(encap_items) < 2
+        or encap_items[0][0] != 0x06
+        or _decode_oid(encap_items[0][1]) != _TST_INFO_OID
+    ):
+        raise TimestampError("token does not carry a TSTInfo")
+    tst_der = _only(encap_items[1][1], 0x04, "eContent")
+
+    tst = _children(_only(tst_der, 0x30, "TSTInfo"))
+    if len(tst) < 5 or tst[2][0] != 0x30:
+        raise TimestampError("TSTInfo is incomplete")
+    imprint_items = _children(tst[2][1])
+    if len(imprint_items) != 2 or imprint_items[1][0] != 0x04:
+        raise TimestampError("messageImprint is malformed")
+    algorithm_items = _children(imprint_items[0][1])
+    if not algorithm_items or algorithm_items[0][0] != 0x06:
+        raise TimestampError("messageImprint has no algorithm")
+
+    gen_time = tst[4][1].decode("ascii", "replace") if tst[4][0] == 0x18 else None
+    nonce = next(
+        (int.from_bytes(c, "big", signed=True) for t, c in tst[5:] if t == 0x02),
+        None,
+    )
+    return TimestampToken(
+        status=status,
+        imprint_algorithm=_decode_oid(algorithm_items[0][1]),
+        imprint=imprint_items[1][1].hex(),
+        gen_time=gen_time,
+        nonce=nonce,
+    )
+
+
+@dataclass
+class TimestampResult:
+    status: str
+    message: str
+    gen_time: str | None = None
+
+    @property
+    def failed(self) -> bool:
+        return self.status in TS_FAILED
+
+
+def openssl_verify_command(head_hash: str, tsr: str | os.PathLike[str], ca_file: str) -> str:
+    return shlex.join(
+        ["openssl", "ts", "-verify", "-digest", head_hash, "-in", str(tsr), "-CAfile", ca_file]
+    )
+
+
+def verify_timestamp(trace_path: str | os.PathLike[str], head_hash: str | None) -> TimestampResult:
+    """Check the ``.tsr`` beside a trace against its head; the token's signature
+    is left to ``openssl ts -verify``, whose command this prints. Never raises."""
+    tsr = Path(trace_path).with_suffix(".tsr")
+    try:
+        recorded = json.loads(Path(trace_path).with_suffix(".timestamp.json").read_text("utf-8"))
+        recorded = recorded if isinstance(recorded, dict) else None
+    except (OSError, ValueError):
+        recorded = None
+
+    if not tsr.exists():
+        if recorded is None:
+            return TimestampResult(TS_NONE, "none (no .tsr beside this trace)")
+        if recorded.get("status") == "pending":
+            return TimestampResult(TS_UNAVAILABLE, "unavailable - the request never completed")
+        return TimestampResult(
+            TS_UNAVAILABLE,
+            f"unavailable - {recorded.get('reason') or 'no token was returned'}",
+        )
+
+    try:
+        token = parse_response(tsr.read_bytes())
+    except (OSError, TimestampError) as exc:
+        return TimestampResult(TS_MALFORMED, f"cannot read {tsr.name}: {exc}")
+
+    if head_hash is None:
+        return TimestampResult(
+            TS_UNVERIFIED,
+            "the chain did not verify far enough to compare the timestamp against",
+            token.gen_time,
+        )
+    if token.imprint_algorithm != SHA256_OID or token.imprint != head_hash:
+        return TimestampResult(
+            TS_IMPRINT_MISMATCH,
+            f"timestamp covers {token.imprint[:12]}... but this trace ends at "
+            f"{head_hash[:12]}... - the trace was rewritten after it was timestamped",
+            token.gen_time,
+        )
+    if recorded is not None and recorded.get("nonce") not in (None, str(token.nonce)):
+        return TimestampResult(
+            TS_MALFORMED, "the token's nonce does not match the request recorded beside it"
+        )
+    return TimestampResult(
+        TS_UNVERIFIED,
+        f"the authority asserts {token.gen_time}; imprint matches this trace's head, "
+        "signature not checked - verify it with:\n     "
+        + openssl_verify_command(head_hash, tsr, "<the TSA's CA certificate>"),
+        token.gen_time,
+    )
+
+
 # -- cli.py: verify -----------------------------------------------------------
 
 
@@ -706,16 +905,21 @@ def main(argv: list[str] | None = None) -> int:
         events = _load(path)
         result = verify(events)
         signature = _check_signature(path, result, pinned, args.openssl)
-        checked.append((path, events, result, signature))
+        stamp = verify_timestamp(path, result.head_hash)
+        checked.append((path, events, result, signature, stamp))
 
     required = args.require_signature
+
+    def passed(result: ChainResult, signature: SignatureResult, stamp: TimestampResult) -> bool:
+        return result.ok and _signature_ok(signature, required=required) and not stamp.failed
+
     if args.json:
         print(
             json.dumps(
                 [
                     {
                         "trace": path,
-                        "ok": result.ok and _signature_ok(signature, required=required),
+                        "ok": passed(result, signature, stamp),
                         "chain_ok": result.ok,
                         "run_id": result.run_id,
                         "events_checked": result.events_checked,
@@ -727,19 +931,24 @@ def main(argv: list[str] | None = None) -> int:
                             "public_key": signature.public_key,
                             "signed_at": signature.signed_at,
                         },
+                        "timestamp": {
+                            "status": stamp.status,
+                            "message": stamp.message,
+                            "gen_time": stamp.gen_time,
+                        },
                         "openssl_command": signature.openssl_command,
                         "errors": [
                             {"code": e.code, "message": e.message, "seq": e.seq, "line": e.line}
                             for e in result.errors
                         ],
                     }
-                    for path, events, result, signature in checked
+                    for path, events, result, signature, stamp in checked
                 ],
                 indent=2,
             )
         )
     else:
-        for path, events, result, signature in checked:
+        for path, events, result, signature, stamp in checked:
             print(f"{result.summary()}  [{path}]")
             if any(isinstance(e, dict) and e.get("v") == "0.1" for e in events):
                 print(
@@ -756,27 +965,26 @@ def main(argv: list[str] | None = None) -> int:
             dropped = dropped_events(events)
             if dropped:
                 print(f"  -- {dropped} dropped event(s) - the record admits gaps")
-            if signature.ok:
-                marker = "OK "
-            elif signature.status in _SIGNATURE_FAILED:
-                marker = "!! "
-            else:
-                marker = "-- "
-            print(f"  {marker}signature: {signature.message}")
+            print(
+                f"  {_marker(signature.ok, signature.status in _SIGNATURE_FAILED)}"
+                f"signature: {signature.message}"
+            )
             if result.ok and signature.status == HEAD_MISMATCH:
                 print(
                     "  The chain re-seals cleanly, so it was rebuilt after signing. "
                     "Trust the signature, not the chain."
                 )
+            print(f"  {_marker(False, stamp.failed)}timestamp: {stamp.message}")
 
     return (
         EXIT_OK
-        if all(
-            result.ok and _signature_ok(signature, required=required)
-            for _, _, result, signature in checked
-        )
+        if all(passed(result, signature, stamp) for _, _, result, signature, stamp in checked)
         else EXIT_BROKEN
     )
+
+
+def _marker(ok: bool, failed: bool) -> str:
+    return "OK " if ok else "!! " if failed else "-- "
 
 
 if __name__ == "__main__":

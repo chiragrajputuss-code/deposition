@@ -23,6 +23,7 @@ KEY_SENTENCES = [
     "It was signed by a specific key, if you pin that key",
     "What the run was authorised to do was sealed together with what it did",
     "Which tool definitions the model was shown, as digests",
+    "That the trace existed no later than a time asserted by an independent timestamp authority",
     "That the recorded events happened.",
     "The process that writes the trace is the process that runs the tools.",
     "Completeness where events were dropped.",

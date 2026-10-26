@@ -31,6 +31,7 @@ from .chain import ChainResult, read_jsonl, verify
 from .mandate import audit as audit_mandate
 from .schema import SCHEMA_VERSION, is_blob_ref
 from .signing import SignatureError, SignatureResult
+from .timestamp import TimestampResult, verify_timestamp
 
 __all__ = ["main"]
 
@@ -97,12 +98,14 @@ what a trace shows, if verify says so:
   - What the run was authorised to do was sealed together with what it did
     (check conduct against it with depo audit).
   - Which tool definitions the model was shown, as digests.
+  - That the trace existed no later than a time asserted by an independent
+    timestamp authority, if one was configured - verified only with --tsa-ca.
 
 what a trace does not show:
   - That the recorded events happened. The process that writes the trace is
     the process that runs the tools.
   - That the signing key was used only by you, that an external side effect
-    succeeded, or when the run happened.
+    succeeded, or when the events happened.
   - Completeness where events were dropped. Dropped events are counted.
 
 exit codes: 0 verified, 1 broken, 2 could not run
@@ -160,20 +163,32 @@ def cmd_verify(args: argparse.Namespace) -> int:
         except SignatureError as exc:
             _die(str(exc))
 
-    results: list[tuple[str, list[Any], ChainResult, SignatureResult]] = []
+    results: list[tuple[str, list[Any], ChainResult, SignatureResult, TimestampResult]] = []
     for path in args.trace:
         events = _load(path)
         result = verify(events)
-        results.append((path, events, result, _check_signature(path, result, pinned)))
+        results.append(
+            (
+                path,
+                events,
+                result,
+                _check_signature(path, result, pinned),
+                verify_timestamp(path, result.head_hash, ca_file=args.tsa_ca),
+            )
+        )
 
     required = args.require_signature
+
+    def passed(result: ChainResult, signature: SignatureResult, stamp: TimestampResult) -> bool:
+        return result.ok and _signature_ok(signature, required=required) and not stamp.failed
+
     if args.json:
         print(
             json.dumps(
                 [
                     {
                         "trace": path,
-                        "ok": result.ok and _signature_ok(signature, required=required),
+                        "ok": passed(result, signature, stamp),
                         "chain_ok": result.ok,
                         "run_id": result.run_id,
                         "events_checked": result.events_checked,
@@ -185,18 +200,23 @@ def cmd_verify(args: argparse.Namespace) -> int:
                             "public_key": signature.public_key,
                             "signed_at": signature.signed_at,
                         },
+                        "timestamp": {
+                            "status": stamp.status,
+                            "message": stamp.message,
+                            "gen_time": stamp.gen_time,
+                        },
                         "errors": [
                             {"code": e.code, "message": e.message, "seq": e.seq, "line": e.line}
                             for e in result.errors
                         ],
                     }
-                    for path, events, result, signature in results
+                    for path, events, result, signature, stamp in results
                 ],
                 indent=2,
             )
         )
     else:
-        for path, events, result, signature in results:
+        for path, events, result, signature, stamp in results:
             print(f"{result.summary()}  [{path}]")
             if any(isinstance(e, dict) and e.get("v") == "0.1" for e in events):
                 # ADR 008: v0 predates RFC 8785 canonicalisation, so only this
@@ -215,15 +235,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
             dropped = _dropped(events)
             if dropped:
                 print(f"  -- {dropped} dropped event(s) - the record admits gaps")
-            # "!!" is reserved for a signature that actually failed; an absent or
+            # "!!" is reserved for a check that actually failed; an absent or
             # uncheckable one is a gap, not an alarm, and must not read like one.
-            if signature.ok:
-                marker = "OK "
-            elif signature.status in _SIGNATURE_FAILED:
-                marker = "!! "
-            else:
-                marker = "-- "
-            print(f"  {marker}signature: {signature.message}")
+            print(
+                f"  {_marker(signature.ok, signature.status in _SIGNATURE_FAILED)}"
+                f"signature: {signature.message}"
+            )
             if result.ok and signature.status == signing.HEAD_MISMATCH:
                 # The chain is internally consistent and still not the trace that
                 # was signed: exactly the edit-and-reseal the signature exists for.
@@ -231,15 +248,19 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     "  The chain re-seals cleanly, so it was rebuilt after signing. "
                     "Trust the signature, not the chain."
                 )
+            print(
+                f"  {_marker(stamp.status == 'verified', stamp.failed)}timestamp: {stamp.message}"
+            )
 
     return (
         EXIT_OK
-        if all(
-            result.ok and _signature_ok(signature, required=required)
-            for _, _, result, signature in results
-        )
+        if all(passed(result, signature, stamp) for _, _, result, signature, stamp in results)
         else EXIT_BROKEN
     )
+
+
+def _marker(ok: bool, failed: bool) -> str:
+    return "OK " if ok else "!! " if failed else "-- "
 
 
 # -- keygen -----------------------------------------------------------------
@@ -627,6 +648,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--require-signature",
         action="store_true",
         help="fail unless the trace carries a signature that verifies against --pubkey",
+    )
+    p_verify.add_argument(
+        "--tsa-ca",
+        metavar="FILE",
+        help="CA certificate of the timestamp authority you trust; runs openssl ts -verify "
+        "on the .tsr against it (without it, a timestamp is never reported as verified)",
     )
     p_verify.set_defaults(func=cmd_verify)
 

@@ -19,6 +19,7 @@ evenings.
 | [011](011-claims-policy.md) | What we claim, and what we never claim | accepted |
 | [012](012-tool-capture-shipped.md) | Tool capture shipped; ADR 004's Phase 4 deferral is void | accepted |
 | [013](013-stream-entrypoint-capture.md) | `messages.stream()` is patched; content is still not captured | accepted |
+| [014](014-rfc3161-time-anchoring.md) | Independent proof of time: RFC 3161 timestamps on the chain head | accepted |
 | [015](015-tool-definition-digests.md) | Tool definitions are sealed as digests | accepted |
 
 New ADRs are numbered sequentially and never edited after they are accepted —

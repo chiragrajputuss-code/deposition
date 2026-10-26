@@ -183,6 +183,30 @@ class Run:
         self.emit(EventType.RUN_END, {"status": status, "totals": totals, **extra})
         self.exporter.close()
         self._sign()
+        self._timestamp()
+
+    def _timestamp(self) -> None:
+        """Ask the configured timestamp authority to vouch for the head (ADR 014).
+
+        On a background thread, never the caller's: the run must not wait on a
+        network round trip. ``shutdown()`` waits for it within its timeout.
+        """
+        url = self.recorder.timestamp_url
+        if url is None:
+            return
+        try:
+            from . import timestamp
+
+            thread = threading.Thread(
+                target=timestamp.timestamp_head,
+                args=(url, self.chain.head_hash, self.exporter.path),
+                name=f"deposition-timestamp-{self.run_id}",
+                daemon=True,
+            )
+            thread.start()
+            self.recorder._timestamp_threads.append(thread)
+        except Exception as exc:  # noqa: BLE001 - never surface into the host agent
+            print(f"deposition: could not timestamp {self.path}: {exc}", file=sys.stderr)
 
     def _sign(self) -> None:
         """Write ``run_<id>.sig`` beside the trace, if a signing key was configured.
@@ -224,9 +248,16 @@ class Recorder:
         config: dict[str, Any] | None = None,
         signing_key: Any | None = None,
         mandate: dict[str, Any] | None = None,
+        timestamp_url: str | None = None,
     ) -> None:
         self.project = project
         self.mandate = mandate
+        # Checked here for the same reason as the signing key: a misconfigured
+        # authority found at run end would silently leave runs untimestamped.
+        if timestamp_url is not None and not str(timestamp_url).startswith(("https://", "http://")):
+            raise ValueError(f"timestamp_url must be an http(s) URL, got {timestamp_url!r}")
+        self.timestamp_url = timestamp_url
+        self._timestamp_threads: list[threading.Thread] = []
         self.directory = directory
         self.token = token
         self.redact = redact
@@ -330,6 +361,14 @@ class Recorder:
             self._pop(run)
             run.exporter.close(timeout)
         self._runs.clear()
+        self.wait_for_timestamps(timeout)
+
+    def wait_for_timestamps(self, timeout: float = 5.0) -> None:
+        """Give outstanding timestamp requests up to ``timeout`` seconds in total."""
+        deadline = time.monotonic() + timeout
+        for thread in self._timestamp_threads:
+            thread.join(max(0.0, deadline - time.monotonic()))
+        self._timestamp_threads = [t for t in self._timestamp_threads if t.is_alive()]
 
 
 _recorder: Recorder | None = None
@@ -345,6 +384,7 @@ def init(
     config: dict[str, Any] | None = None,
     signing_key: str | os.PathLike[str] | bytes | None = None,
     mandate: dict[str, Any] | None = None,
+    timestamp_url: str | None = None,
 ) -> Recorder:
     """Configure recording for this process.
 
@@ -360,6 +400,12 @@ def init(
     writes ``run_<id>.sig`` beside its trace. Read ``docs/decisions/005`` before
     relying on it: a key stored beside the traces it signs raises the bar, it
     does not settle the question.
+
+    ``timestamp_url`` is an RFC 3161 timestamp authority (ADR 014), off by
+    default and with no default authority. At run end only the 32-byte head
+    hash is sent to it, on a background thread, and the token is written to
+    ``run_<id>.tsr``. It shows the trace existed by a time someone else
+    asserts - not that the events happened.
     """
     global _recorder
     _recorder = Recorder(
@@ -371,6 +417,7 @@ def init(
         config=config,
         signing_key=signing_key,
         mandate=mandate,
+        timestamp_url=timestamp_url,
     )
     if instrument:
         from .instrument import install

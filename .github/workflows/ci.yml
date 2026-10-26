@@ -36,9 +36,9 @@ jobs:
           fi
       - name: the standalone verifier's openssl checks must actually have run
         run: |
-          python -m pytest tests/test_verify_standalone.py -q -rs 2>&1 | tee out.txt
+          python -m pytest tests/test_verify_standalone.py tests/test_timestamp.py -q -rs 2>&1 | tee out.txt
           if grep -q "skipped" out.txt; then
-            echo "::error::openssl cross-check skipped - OpenSSL 3 missing or guard wrong"
+            echo "::error::openssl cross-checks skipped (standalone signature or RFC 3161) - OpenSSL 3 missing or guard wrong"
             exit 1
           fi
 

@@ -120,6 +120,12 @@ nobody has to discover it.
   through the OpenAI or Anthropic SDK, each tool's name, description and input
   schema is sealed as a SHA-256, so `depo diff` and `depo audit` show when one
   changed.
+- **That the trace existed no later than a time asserted by an independent
+  timestamp authority**, if you opt in. With `deposition.init(timestamp_url=...)`,
+  only the 32-byte head hash is sent to an RFC 3161 authority you choose, and
+  its signed token is stored beside the trace. A rewritten trace no longer
+  matches the token. `depo verify --tsa-ca` checks the token with OpenSSL
+  against a CA you pick; without one it is never reported as verified.
 
 **What a trace does not show**
 
@@ -132,8 +138,9 @@ nobody has to discover it.
   the agent is available to anything that compromises that machine.
 - **That an external side effect succeeded.** A recorded payment or email call
   shows what the tool returned to the agent, not what the outside system did.
-- **When the run happened.** Event timestamps and `signed_at` are asserted by
-  the machine that wrote them.
+- **When the events happened.** Event timestamps and `signed_at` are asserted
+  by the machine that wrote them. A timestamp token shows only that the trace
+  existed by then.
 - **Completeness where events were dropped.** Dropped events are counted in
   `run_end`, and `depo audit` refuses to attest compliance on a record that
   admits gaps.
@@ -146,7 +153,7 @@ nobody has to discover it.
 | --- | --- |
 | Countersigning at ingest: a server holding a key you do not records that it received this head, and when | not built - [ADR 005](docs/decisions/005-signing-and-anchoring.md) layer 2 |
 | Signing keys held off the agent host | not built |
-| An independent timestamp authority vouching for when the chain head existed (RFC 3161) | planned |
+| An independent timestamp authority vouching for when the chain head existed (RFC 3161) | shipped, opt-in - [ADR 014](docs/decisions/014-rfc3161-time-anchoring.md); periodic anchoring during long runs not built |
 | Receipts from the other side of a call, so its records commit to the interaction | proposed - [ADR 009](docs/decisions/009-interlocking-traces.md) |
 
 This section was sharpened by public critique in
@@ -205,10 +212,12 @@ framework — see [Tool capture](#tool-capture-verified-against-real-frameworks)
 for exactly which five, and which still have no hook at all.
 
 **Signing has the limits stated in [Signing](#signing):** a key on the same
-disk as the traces it signs raises the bar, it does not settle the question, and
-nothing proves *when* a run happened beyond what the signer asserts. Both are
-what [countersigning at ingest](docs/decisions/005-signing-and-anchoring.md)
-exists to fix, and it is not built.
+disk as the traces it signs raises the bar, it does not settle the question.
+When a trace existed can be vouched for by a third party only if you opt in to
+[RFC 3161 timestamps](docs/decisions/014-rfc3161-time-anchoring.md); otherwise
+it rests on what the signer asserts. A server that also records *receiving* the
+trace is what [countersigning at ingest](docs/decisions/005-signing-and-anchoring.md)
+exists for, and it is not built.
 
 **Interlocking traces between two agents** — so each side's chain commits to
 the other's at the moment they interact — is a written spec,
@@ -348,7 +357,8 @@ makes an unsigned or unpinned trace a failure too — the flag to use in CI.
 
 **The honest limits.** A key stored on the same disk as the traces it signs
 raises the bar; it does not settle the question. Nor does a signature prove
-*when* a run happened: `signed_at` is asserted by the signer. Countersigning at
+*when* a run happened: `signed_at` is asserted by the signer - see
+[Timestamps](#timestamps-opt-in) for a third party's word on that. Countersigning at
 ingest, where the server holds a key you do not, is the real answer, and it is
 Phase 2 — see [ADR 005](docs/decisions/005-signing-and-anchoring.md). Deposition
 says *tamper-evident* today, and will not say *tamper-proof* until that ships.
@@ -357,6 +367,34 @@ Any event may carry `caused_by: [seq, …]` pointing at the earlier events that
 produced it. The SDK fills this in where it can — a tool call caused by the LLM
 message that requested it — and the viewer walks it backwards to answer "why did
 this happen?".
+
+## Timestamps (opt-in)
+
+```python
+deposition.init("support-triage", signing_key="signing.pem",
+                timestamp_url="https://your-chosen-tsa.example/tsr")
+```
+
+At run end, on a background thread, only the 32-byte head hash is sent to the
+[RFC 3161](https://www.rfc-editor.org/rfc/rfc3161) timestamp authority you name,
+and its signed token is written beside the trace as `run_9f3kQ2.tsr`. There is
+no default authority: which one to trust is your decision. A slow or failing
+authority never holds up or breaks the run - after a 5-second timeout the
+status file beside the trace records why there is no token.
+
+```console
+$ depo verify run_9f3kQ2.jsonl --pubkey signing.pem.pub --tsa-ca tsa-ca.pem
+OK  42 events verified for run_9f3kQ2
+  OK signature: signature verified against 4200424479da...
+  OK timestamp: timestamp verified against tsa-ca.pem: existed by 20261026090000Z
+```
+
+Without `--tsa-ca`, `verify` checks that the token covers this trace's head and
+prints the `openssl ts -verify` command, but never says *verified*: a token
+carries its authority's certificate, and anyone can run an authority. A token
+shows the trace existed by that time - not that its events happened, or
+happened then. Periodic anchoring during long runs is not built
+([ADR 014](docs/decisions/014-rfc3161-time-anchoring.md)).
 
 ## Verify a trace without installing Deposition
 
