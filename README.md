@@ -5,6 +5,23 @@
 [![Python](https://img.shields.io/pypi/pyversions/deposition)](https://pypi.org/project/deposition/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
+Deposition records what an AI agent did - every LLM call, tool call and
+decision - into a hash-chained, signable trace, and replays it step by step in
+a local viewer.
+
+![A signed refund trace, forged, and caught: the hash chain still verifies while the signature fails](docs/media/demo.gif)
+
+```console
+pip install 'deposition[viewer]' && depo demo
+```
+
+**[What a Deposition trace proves, and what it does not →](#what-a-deposition-trace-proves-and-what-it-does-not)**
+
+Feedback wanted: try to break the integrity model.
+[Open an issue](https://github.com/chiragrajputuss-code/deposition/issues/new/choose) with what you tried.
+
+---
+
 Tool capture verified against real packages, not self-reported — see
 [the harness](#tool-capture-verified-against-real-frameworks):
 
@@ -13,10 +30,6 @@ Tool capture verified against real packages, not self-reported — see
 [![OpenAI Agents SDK](https://img.shields.io/badge/OpenAI%20Agents%20SDK-0.24.0-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic%20AI-2.57.0-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
 [![AutoGen](https://img.shields.io/badge/AutoGen-0.7.5-2f6f5e)](docs/decisions/012-tool-capture-shipped.md)
-
-**A sworn record of what your AI agent actually did.**
-
-![A signed refund trace, forged, and caught: the hash chain still verifies while the signature fails](docs/media/demo.gif)
 
 *A deposition is sworn testimony, recorded verbatim outside a courtroom and used
 as evidence when someone later disputes what happened. That is the idea.*
@@ -81,6 +94,61 @@ OK  42 events verified for run_9f3kQ2
 $ depo view ./deposition/run_9f3kQ2.jsonl
 serving replay viewer on http://127.0.0.1:7878
 ```
+
+## What a Deposition trace proves, and what it does not
+
+Everything under "shows" is something you can check yourself with `depo verify`
+or `depo audit`. Everything under "does not show" is a limit stated here so
+nobody has to discover it.
+
+**What a trace shows**
+
+- **The file was not altered after it was written.** No event was edited,
+  removed or reordered, and a trace cut short loses its `run_end`, which the
+  viewer reports as truncated. On its own, the chain shows this only against
+  someone who does not hold the file: anyone who does can edit an event and
+  re-seal the rest.
+- **It was signed by a specific key, if you pin that key.** With `--pubkey`, an
+  edit-and-reseal fails, because whoever rewrote the trace cannot sign its new
+  head without the private key. Without a pinned key, `verify` reports *signed
+  by an unverified key*, never *verified*.
+- **What the run was authorised to do was sealed together with what it did.** A
+  mandate is recorded inside `run_start`, under the same chain and signature as
+  the events, so the policy cannot be quietly rewritten afterwards. `depo audit`
+  checks the recorded conduct against it.
+
+**What a trace does not show**
+
+- **That the recorded events happened.** The process that writes the trace is
+  the process that runs the tools. A compromised or buggy host can produce a
+  complete, internally consistent, correctly signed chain for a run that never
+  occurred. A trace is the agent's own testimony, sealed - not an independent
+  witness.
+- **That the signing key was used only by you.** A key on the same machine as
+  the agent is available to anything that compromises that machine.
+- **That an external side effect succeeded.** A recorded payment or email call
+  shows what the tool returned to the agent, not what the outside system did.
+- **When the run happened.** Event timestamps and `signed_at` are asserted by
+  the machine that wrote them.
+- **Completeness where events were dropped.** Dropped events are counted in
+  `run_end`, and `depo audit` refuses to attest compliance on a record that
+  admits gaps.
+- **Content Deposition does not capture**, such as streamed responses - see
+  [Current limitations](#current-limitations).
+
+**What would raise the bar**
+
+| Step | Status |
+| --- | --- |
+| Countersigning at ingest: a server holding a key you do not records that it received this head, and when | not built - [ADR 005](docs/decisions/005-signing-and-anchoring.md) layer 2 |
+| Signing keys held off the agent host | not built |
+| An independent timestamp authority vouching for when the chain head existed (RFC 3161) | planned |
+| Receipts from the other side of a call, so its records commit to the interaction | proposed - [ADR 009](docs/decisions/009-interlocking-traces.md) |
+
+This section was sharpened by public critique in
+[langchain-ai/langchain#35357](https://github.com/langchain-ai/langchain/issues/35357)
+and on r/LangChain - in particular the point that the process writing a trace is
+the same process running the tools.
 
 ## Status
 

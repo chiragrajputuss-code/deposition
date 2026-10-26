@@ -43,8 +43,8 @@ deposition = "deposition.cli:main"
 depo = "deposition.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/canvas-dev/deposition"
-Source = "https://github.com/canvas-dev/deposition"
+Homepage = "https://github.com/chiragrajputuss-code/deposition"
+Source = "https://github.com/chiragrajputuss-code/deposition"
 
 [build-system]
 requires = ["hatchling"]
