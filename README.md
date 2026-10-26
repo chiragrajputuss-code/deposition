@@ -12,7 +12,7 @@ a local viewer.
 ![A signed refund trace, forged, and caught: the hash chain still verifies while the signature fails](docs/media/demo.gif)
 
 ```console
-pip install 'deposition[viewer]' && depo demo
+pip install 'deposition[viewer,signing]' && depo demo
 ```
 
 **[What a Deposition trace proves, and what it does not →](#what-a-deposition-trace-proves-and-what-it-does-not)**
@@ -55,7 +55,7 @@ independent of every party it records.
 No API key, no account, no config - a bundled run opens straight in the viewer:
 
 ```console
-$ pip install 'deposition[viewer]'
+$ pip install 'deposition[viewer,signing]'
 $ deposition demo
 ```
 
@@ -288,7 +288,7 @@ Python 3.10+. The SDK itself has **zero** required dependencies - heavy deps kil
 adoption, and a recorder you cannot install is a recorder that records nothing.
 `viewer` adds FastAPI; `signing` adds `cryptography`. Neither is needed to record.
 
-Published as `0.1.0.dev0` while the API settles: pre-release, so `pip install
+Published as `0.1.0.dev1` while the API settles: pre-release, so `pip install
 deposition` gives you it only because no stable release exists yet, and nothing
 pins to it by accident.
 

@@ -37,7 +37,7 @@ from .chain import ChainBuilder, ChainResult, verify_file
 from .exporters.jsonl import JsonlExporter
 from .schema import SCHEMA_VERSION, Event, EventType, SchemaError
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0.dev1"
 __all__ = [
     "__version__",
     "SCHEMA_VERSION",
