@@ -19,9 +19,11 @@ What a trace shows, if this script says so:
   the rest.
 * It was signed by a specific key, if you pin that key. Without ``--pubkey``
   the result is "signed by an unverified key", never "verified".
-* What the run was authorised to do (a mandate in ``run_start``) was sealed
-  together with what it did. This script checks the seal, not the mandate;
-  ``depo audit`` checks conduct against it.
+* What the run was authorised to do was sealed together with what it did. This
+  script checks the seal, not the mandate; ``depo audit`` checks conduct
+  against it.
+* Which tool definitions the model was shown, as digests, for calls made
+  through the OpenAI or Anthropic SDK - sealed by the same chain.
 
 What a trace does not show:
 

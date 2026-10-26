@@ -116,6 +116,10 @@ nobody has to discover it.
   mandate is recorded inside `run_start`, under the same chain and signature as
   the events, so the policy cannot be quietly rewritten afterwards. `depo audit`
   checks the recorded conduct against it.
+- **Which tool definitions the model was shown, as digests.** For calls made
+  through the OpenAI or Anthropic SDK, each tool's name, description and input
+  schema is sealed as a SHA-256, so `depo diff` and `depo audit` show when one
+  changed.
 
 **What a trace does not show**
 

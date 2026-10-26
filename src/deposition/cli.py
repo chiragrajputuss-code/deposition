@@ -84,6 +84,30 @@ def _signature(event: dict[str, Any]) -> str:
 # -- verify -----------------------------------------------------------------
 
 
+#: Worded the same as the README section "What a Deposition trace proves, and
+#: what it does not" and scripts/verify_standalone.py's header; a test keeps
+#: the three in step.
+VERIFY_EPILOG = """\
+what a trace shows, if verify says so:
+  - The file was not altered after it was written. On its own the chain shows
+    this only against someone who does not hold the file: anyone who does can
+    edit an event and re-seal the rest.
+  - It was signed by a specific key, if you pin that key (--pubkey). Without a
+    pinned key the result is "signed by an unverified key", never "verified".
+  - What the run was authorised to do was sealed together with what it did
+    (check conduct against it with depo audit).
+  - Which tool definitions the model was shown, as digests.
+
+what a trace does not show:
+  - That the recorded events happened. The process that writes the trace is
+    the process that runs the tools.
+  - That the signing key was used only by you, that an external side effect
+    succeeded, or when the run happened.
+  - Completeness where events were dropped. Dropped events are counted.
+
+exit codes: 0 verified, 1 broken, 2 could not run
+"""
+
 #: Statuses that mean a signature is present and wrong - always a failure.
 _SIGNATURE_FAILED = {
     signing.BAD_SIGNATURE,
@@ -586,7 +610,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_view.set_defaults(func=cmd_view)
 
-    p_verify = sub.add_parser("verify", help="check a trace's hash chain")
+    p_verify = sub.add_parser(
+        "verify",
+        help="check a trace's hash chain",
+        epilog=VERIFY_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_verify.add_argument("trace", nargs="+", help="one or more .jsonl trace files")
     p_verify.add_argument("--json", action="store_true", help="machine-readable output")
     p_verify.add_argument(
