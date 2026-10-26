@@ -10,8 +10,8 @@ hand; the response is stored byte for byte as ``run_<id>.tsr``. Checking the
 TSA's signature needs CMS and X.509, which the standard library lacks, so this
 module parses only enough DER to compare the token's message imprint with the
 head hash and leaves the signature to ``openssl ts -verify`` - run by the user,
-or by ``depo verify --tsa-ca`` with a CA file the user chose. Without one, a
-timestamp is never reported as verified.
+or by ``depo verify --tsa-ca`` with a CA file the user chose. A timestamp is
+described as "unedited since T", never as verification (ADR 016).
 """
 
 from __future__ import annotations
@@ -52,8 +52,8 @@ _TST_INFO_OID = "1.2.840.113549.1.9.16.1.4"
 
 NONE = "none"
 UNAVAILABLE = "unavailable"
-UNVERIFIED = "unverified"
-VERIFIED = "verified"
+UNCHECKED = "unchecked"
+ANCHORED = "anchored"
 IMPRINT_MISMATCH = "imprint_mismatch"
 BAD_TIMESTAMP = "bad_timestamp"
 MALFORMED = "malformed"
@@ -372,7 +372,7 @@ def verify_timestamp(
 
     if head_hash is None:
         return TimestampResult(
-            UNVERIFIED,
+            UNCHECKED,
             "the chain did not verify far enough to compare the timestamp against",
             token.gen_time,
         )
@@ -390,17 +390,17 @@ def verify_timestamp(
 
     if ca_file is None:
         return TimestampResult(
-            UNVERIFIED,
-            f"the authority asserts {token.gen_time}; imprint matches this trace's head, "
-            "signature not checked - verify it with:\n     "
-            + openssl_verify_command(head_hash, tsr, "<the TSA's CA certificate>"),
+            UNCHECKED,
+            f"the authority asserts the trace was unedited since {token.gen_time}; its token "
+            "covers this trace's head, but the authority's signature is not checked - check it "
+            "with:\n     " + openssl_verify_command(head_hash, tsr, "<the TSA's CA certificate>"),
             token.gen_time,
         )
 
     openssl = shutil.which("openssl")
     if openssl is None:
         return TimestampResult(
-            UNVERIFIED,
+            UNCHECKED,
             "imprint matches, but openssl is not on PATH to check the token against --tsa-ca",
             token.gen_time,
         )
@@ -409,11 +409,12 @@ def verify_timestamp(
     try:
         proc = subprocess.run(command, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError) as exc:
-        return TimestampResult(UNVERIFIED, f"could not run openssl: {exc}", token.gen_time)
+        return TimestampResult(UNCHECKED, f"could not run openssl: {exc}", token.gen_time)
     if proc.returncode == 0 and "Verification: OK" in proc.stdout:
         return TimestampResult(
-            VERIFIED,
-            f"timestamp verified against {Path(ca_file).name}: existed by {token.gen_time}",
+            ANCHORED,
+            f"unedited since {token.gen_time} - the authority's token checks out against "
+            f"{Path(ca_file).name}",
             token.gen_time,
         )
     detail = (proc.stderr or proc.stdout).strip().splitlines()

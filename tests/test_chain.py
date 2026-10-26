@@ -300,7 +300,13 @@ def test_raise_if_broken_raises_and_carries_the_result():
 
 
 def test_summaries_read_like_a_verdict():
-    assert verify(build_trace()).summary().startswith("OK  5 events verified for run_9f3kQ2")
+    assert verify(build_trace()).summary().startswith("OK  5 events, record intact for run_9f3kQ2")
+
+
+def test_a_clean_summary_says_the_record_is_intact_never_that_events_were_verified():
+    """The chain checks the record is unedited, not that what it records happened
+    (ADR 016) - so its verdict must not use the word."""
+    assert "verified" not in verify(build_trace()).summary()
     broken = build_trace()
     broken[1]["ts"] = TS.replace("08", "09")
     assert verify(broken).summary().startswith("BROKEN")

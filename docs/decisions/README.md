@@ -21,6 +21,7 @@ evenings.
 | [013](013-stream-entrypoint-capture.md) | `messages.stream()` is patched; content is still not captured | accepted |
 | [014](014-rfc3161-time-anchoring.md) | Independent proof of time: RFC 3161 timestamps on the chain head | accepted |
 | [015](015-tool-definition-digests.md) | Tool definitions are sealed as digests | accepted |
+| [016](016-host-attested-and-corroborated.md) | Host-attested and corroborated: integrity is not verification | accepted |
 
 New ADRs are numbered sequentially and never edited after they are accepted —
 supersede them with a new one instead, so the reasoning stays readable in order.

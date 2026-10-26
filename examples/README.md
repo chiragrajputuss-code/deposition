@@ -46,7 +46,7 @@ answer the question.
 ```console
 $ python examples/02_tool_loop.py
 $ deposition verify ./deposition/run_*.jsonl
-OK  7 events verified for run_aB3kQ2
+OK  7 events, record intact for run_aB3kQ2
   -- signature: unsigned (no .sig file beside this trace)
 
 $ deposition view ./deposition/run_*.jsonl
@@ -61,7 +61,7 @@ the signature will not:
 
 ```console
 $ deposition verify ./deposition/run_*.jsonl --pubkey ./deposition/refunds.pem.pub
-OK  6 events verified for run_itkWaU
+OK  6 events, record intact for run_itkWaU
   !! signature: signature covers head 9ce059683c05... but this trace ends at
      e36ebb6fc31b... - the trace was rewritten after it was signed
 ```

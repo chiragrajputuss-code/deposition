@@ -89,13 +89,26 @@ def run_agent(ticket):
 
 ```console
 $ depo verify ./deposition/run_9f3kQ2.jsonl
-OK  42 events verified for run_9f3kQ2
+OK  42 events, record intact for run_9f3kQ2
 
 $ depo view ./deposition/run_9f3kQ2.jsonl
 serving replay viewer on http://127.0.0.1:7878
 ```
 
 ## What a Deposition trace proves, and what it does not
+
+Verification checks the integrity of the record, not that the events in it
+happened.
+
+Two labels say how far a recorded event can be trusted:
+
+- **Host-attested:** recorded only by the machine running the agent - in-process
+  steps, local tools, model calls as the host saw them. It means what the host
+  claims happened, unedited since it was written. Everything Deposition records
+  today is host-attested.
+- **Corroborated:** an external event - an API call, a payment, an email, an
+  external write - confirmed by the counterparty that handled it, for example by
+  a receipt signed with a key the agent host cannot use. Not implemented yet.
 
 Everything under "shows" is something you can check yourself with `depo verify`
 or `depo audit`. Everything under "does not show" is a limit stated here so
@@ -111,7 +124,8 @@ nobody has to discover it.
 - **It was signed by a specific key, if you pin that key.** With `--pubkey`, an
   edit-and-reseal fails, because whoever rewrote the trace cannot sign its new
   head without the private key. Without a pinned key, `verify` reports *signed
-  by an unverified key*, never *verified*.
+  by an unverified key*, never *verified*. This is about who signed the record,
+  not about the events in it.
 - **What the run was authorised to do was sealed together with what it did.** A
   mandate is recorded inside `run_start`, under the same chain and signature as
   the events, so the policy cannot be quietly rewritten afterwards. `depo audit`
@@ -120,27 +134,28 @@ nobody has to discover it.
   through the OpenAI or Anthropic SDK, each tool's name, description and input
   schema is sealed as a SHA-256, so `depo diff` and `depo audit` show when one
   changed.
-- **That the trace existed no later than a time asserted by an independent
-  timestamp authority**, if you opt in. With `deposition.init(timestamp_url=...)`,
-  only the 32-byte head hash is sent to an RFC 3161 authority you choose, and
-  its signed token is stored beside the trace. A rewritten trace no longer
-  matches the token. `depo verify --tsa-ca` checks the token with OpenSSL
-  against a CA you pick; without one it is never reported as verified.
+- **Unedited since time T, as asserted by an independent timestamp authority**,
+  if you opt in. With `deposition.init(timestamp_url=...)`, only the 32-byte
+  head hash is sent to an RFC 3161 authority you choose, and its signed token is
+  stored beside the trace. A rewritten trace no longer matches the token. `depo
+  verify --tsa-ca` checks the authority's signature on the token with OpenSSL,
+  against a CA you pick, and only then reports the timestamp as anchored.
 
 **What a trace does not show**
 
 - **That the recorded events happened.** The process that writes the trace is
   the process that runs the tools. A compromised or buggy host can produce a
   complete, internally consistent, correctly signed chain for a run that never
-  occurred. A trace is the agent's own testimony, sealed - not an independent
-  witness.
+  occurred. A host-attested trace is the agent's own testimony, sealed - not an
+  independent witness.
 - **That the signing key was used only by you.** A key on the same machine as
   the agent is available to anything that compromises that machine.
 - **That an external side effect succeeded.** A recorded payment or email call
   shows what the tool returned to the agent, not what the outside system did.
+  That needs a corroborated event, which is not implemented yet.
 - **When the events happened.** Event timestamps and `signed_at` are asserted
   by the machine that wrote them. A timestamp token shows only that the trace
-  existed by then.
+  was unedited since T.
 - **Completeness where events were dropped.** Dropped events are counted in
   `run_end`, and `depo audit` refuses to attest compliance on a record that
   admits gaps.
@@ -151,10 +166,9 @@ nobody has to discover it.
 
 | Step | Status |
 | --- | --- |
-| Countersigning at ingest: a server holding a key you do not records that it received this head, and when | not built - [ADR 005](docs/decisions/005-signing-and-anchoring.md) layer 2 |
-| Signing keys held off the agent host | not built |
-| An independent timestamp authority vouching for when the chain head existed (RFC 3161) | shipped, opt-in - [ADR 014](docs/decisions/014-rfc3161-time-anchoring.md); periodic anchoring during long runs not built |
-| Receipts from the other side of a call, so its records commit to the interaction | proposed - [ADR 009](docs/decisions/009-interlocking-traces.md) |
+| Counterparty receipts: the other side of a call commits to the interaction, so an external event can be corroborated | proposed - [ADR 009](docs/decisions/009-interlocking-traces.md) |
+| Hosted countersigning: a server holding a key you do not records that it received this head, and when | not built - [ADR 005](docs/decisions/005-signing-and-anchoring.md) layer 2 |
+| Moving signing keys off the agent host | not built |
 
 This section was sharpened by public critique in
 [langchain-ai/langchain#35357](https://github.com/langchain-ai/langchain/issues/35357)
@@ -332,7 +346,7 @@ forger cannot sign the new one.
 
 ```console
 $ depo verify run_9f3kQ2.jsonl --pubkey signing.pem.pub
-OK  42 events verified for run_9f3kQ2
+OK  42 events, record intact for run_9f3kQ2
   OK signature: signature verified against 4200424479da...
 ```
 
@@ -347,7 +361,7 @@ catches the edit-and-reseal the chain cannot:
 
 ```console
 $ depo verify run_9f3kQ2.jsonl --pubkey signing.pem.pub
-OK  42 events verified for run_9f3kQ2
+OK  42 events, record intact for run_9f3kQ2
   !! signature: signature covers head 9ce059683c05... but this trace ends at
      e36ebb6fc31b... - the trace was rewritten after it was signed
 ```
@@ -384,16 +398,16 @@ status file beside the trace records why there is no token.
 
 ```console
 $ depo verify run_9f3kQ2.jsonl --pubkey signing.pem.pub --tsa-ca tsa-ca.pem
-OK  42 events verified for run_9f3kQ2
+OK  42 events, record intact for run_9f3kQ2
   OK signature: signature verified against 4200424479da...
-  OK timestamp: timestamp verified against tsa-ca.pem: existed by 20261026090000Z
+  OK timestamp: unedited since 20261026090000Z - the authority's token checks out against tsa-ca.pem
 ```
 
 Without `--tsa-ca`, `verify` checks that the token covers this trace's head and
-prints the `openssl ts -verify` command, but never says *verified*: a token
-carries its authority's certificate, and anyone can run an authority. A token
-shows the trace existed by that time - not that its events happened, or
-happened then. Periodic anchoring during long runs is not built
+prints the `openssl ts -verify` command, but never reports the timestamp as
+anchored: a token carries its authority's certificate, and anyone can run an
+authority. A timestamp means the trace was unedited since T - not that its
+events happened, or happened then. Periodic anchoring during long runs is not built
 ([ADR 014](docs/decisions/014-rfc3161-time-anchoring.md)).
 
 ## Verify a trace without installing Deposition
@@ -413,7 +427,7 @@ CI runs it on an interpreter with nothing installed.
 Without the `cryptography` package it still checks the chain, the head hash,
 the run and the key, then prints an `openssl` command that checks the signature
 itself (OpenSSL 3.0+), so the last step runs on a tool you already trust.
-Without `--pubkey` it never says *verified*.
+Without `--pubkey` it never says the signature is *verified*.
 
 ## Importing Claude Code
 

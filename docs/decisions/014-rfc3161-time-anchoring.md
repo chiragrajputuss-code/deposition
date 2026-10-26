@@ -1,6 +1,7 @@
 # 014 — Independent proof of time: RFC 3161 timestamps on the chain head
 
-**Status:** accepted · **Date:** 2026-10-26
+**Status:** accepted · **Date:** 2026-10-26 · status names amended by
+[016](016-host-attested-and-corroborated.md) (`verified` → `anchored`, `unverified` → `unchecked`)
 **Raised by:** public feedback - "the cheap fix short of an HSM is an RFC 3161
 timestamping service on the chain head... it outsources the 'when did this exist'
 question to someone who isn't you"

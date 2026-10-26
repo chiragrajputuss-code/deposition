@@ -214,11 +214,11 @@ def test_a_run_with_a_timestamp_url_writes_a_tsr_beside_the_trace(trace_dir, aut
 
     code, result = verify_json(path, capsys)
     assert code == 0
-    assert result["timestamp"]["status"] == "unverified"
+    assert result["timestamp"]["status"] == "unchecked"
     assert "openssl ts -verify -digest" in result["timestamp"]["message"]
 
 
-def test_without_a_tsa_ca_a_timestamp_is_never_reported_verified(trace_dir, authority, capsys):
+def test_without_a_tsa_ca_a_timestamp_is_never_reported_anchored(trace_dir, authority, capsys):
     path = record_run(trace_dir, authority().url)
     main(["verify", str(path)])
     out = capsys.readouterr().out
@@ -343,7 +343,7 @@ def test_a_token_whose_nonce_differs_from_the_recorded_request_is_malformed(tmp_
 
 
 STANDALONE_CASES = {
-    "unverified": lambda p: stamp(p),
+    "unchecked": lambda p: stamp(p),
     "imprint_mismatch": lambda p: stamp(p, head="cd" * 32),
     "malformed": lambda p: p.with_suffix(".tsr").write_bytes(b"\x30\x03garbage"),
     "unavailable": lambda p: p.with_suffix(".timestamp.json").write_text(
@@ -422,7 +422,7 @@ ess_cert_id_alg = sha256
 
 
 @needs_openssl_3
-def test_a_real_token_verifies_only_against_a_ca_the_user_chose(
+def test_a_real_token_is_anchored_only_against_a_ca_the_user_chose(
     trace_dir, authority, openssl_tsa, capsys
 ):
     d, reply = openssl_tsa
@@ -430,10 +430,10 @@ def test_a_real_token_verifies_only_against_a_ca_the_user_chose(
     assert path.with_suffix(".tsr").exists()
 
     code, result = verify_json(path, capsys)
-    assert result["timestamp"]["status"] == "unverified"
+    assert result["timestamp"]["status"] == "unchecked"
 
     code, result = verify_json(path, capsys, "--tsa-ca", d / "ca.crt")
-    assert result["timestamp"]["status"] == "verified", result["timestamp"]["message"]
+    assert result["timestamp"]["status"] == "anchored", result["timestamp"]["message"]
     assert code == 0
 
 

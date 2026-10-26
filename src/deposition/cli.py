@@ -4,8 +4,8 @@ Stdlib only. ``verify`` is the one that has to be beyond reproach - it is the
 command a user runs when they need to show someone else that a trace was not
 altered, so its exit code is part of its contract:
 
-* ``0`` - every trace given verified
-* ``1`` - at least one trace is broken, or carries a signature that fails
+* ``0`` - every trace given is intact
+* ``1`` - at least one trace is broken, or carries a signature or timestamp that fails
 * ``2`` - the command could not run (bad arguments, missing file)
 
 An *absent* signature is not a failure by default - most traces are unsigned and
@@ -89,6 +89,18 @@ def _signature(event: dict[str, Any]) -> str:
 #: what it does not" and scripts/verify_standalone.py's header; a test keeps
 #: the three in step.
 VERIFY_EPILOG = """\
+Verification checks the integrity of the record, not that the events in it
+happened.
+
+Host-attested: recorded only by the machine running the agent - in-process
+steps, local tools, model calls as the host saw them. It means what the host
+claims happened, unedited since it was written. Everything Deposition records
+today is host-attested.
+
+Corroborated: an external event - an API call, a payment, an email, an
+external write - confirmed by the counterparty that handled it, for example by
+a receipt signed with a key the agent host cannot use. Not implemented yet.
+
 what a trace shows, if verify says so:
   - The file was not altered after it was written. On its own the chain shows
     this only against someone who does not hold the file: anyone who does can
@@ -98,8 +110,8 @@ what a trace shows, if verify says so:
   - What the run was authorised to do was sealed together with what it did
     (check conduct against it with depo audit).
   - Which tool definitions the model was shown, as digests.
-  - That the trace existed no later than a time asserted by an independent
-    timestamp authority, if one was configured - verified only with --tsa-ca.
+  - Unedited since time T, as asserted by an independent timestamp authority,
+    if one was configured - anchored only when --tsa-ca checks its token.
 
 what a trace does not show:
   - That the recorded events happened. The process that writes the trace is
@@ -108,7 +120,7 @@ what a trace does not show:
     succeeded, or when the events happened.
   - Completeness where events were dropped. Dropped events are counted.
 
-exit codes: 0 verified, 1 broken, 2 could not run
+exit codes: 0 intact, 1 broken, 2 could not run
 """
 
 #: Statuses that mean a signature is present and wrong - always a failure.
@@ -249,7 +261,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     "Trust the signature, not the chain."
                 )
             print(
-                f"  {_marker(stamp.status == 'verified', stamp.failed)}timestamp: {stamp.message}"
+                f"  {_marker(stamp.status == 'anchored', stamp.failed)}timestamp: {stamp.message}"
             )
 
     return (
@@ -653,7 +665,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--tsa-ca",
         metavar="FILE",
         help="CA certificate of the timestamp authority you trust; runs openssl ts -verify "
-        "on the .tsr against it (without it, a timestamp is never reported as verified)",
+        "on the .tsr against it (without it, a timestamp is never reported as anchored)",
     )
     p_verify.set_defaults(func=cmd_verify)
 

@@ -11,6 +11,18 @@ below is a deliberate second copy of ``src/deposition/schema.py`` and
 error codes - and ``tests/test_verify_standalone.py`` fails if the two copies
 ever disagree.
 
+Verification checks the integrity of the record, not that the events in it
+happened.
+
+Host-attested: recorded only by the machine running the agent - in-process
+steps, local tools, model calls as the host saw them. It means what the host
+claims happened, unedited since it was written. Everything Deposition records
+today is host-attested.
+
+Corroborated: an external event - an API call, a payment, an email, an
+external write - confirmed by the counterparty that handled it, for example by
+a receipt signed with a key the agent host cannot use. Not implemented yet.
+
 What a trace shows, if this script says so:
 
 * The file was not altered after it was written. No event was edited,
@@ -24,10 +36,10 @@ What a trace shows, if this script says so:
   against it.
 * Which tool definitions the model was shown, as digests, for calls made
   through the OpenAI or Anthropic SDK - sealed by the same chain.
-* That the trace existed no later than a time asserted by an independent
-  timestamp authority, if a ``.tsr`` is beside it. This script checks the
-  token covers this trace's head and prints the ``openssl ts -verify``
-  command for the authority's signature; it never says "verified" for it.
+* Unedited since time T, as asserted by an independent timestamp authority, if
+  a ``.tsr`` is beside it. This script checks the token covers this trace's
+  head and prints the ``openssl ts -verify`` command for the authority's
+  signature; it never reports the timestamp as anchored itself.
 
 What a trace does not show:
 
@@ -50,7 +62,7 @@ signature itself, so you can use a tool you already trust. That needs
 OpenSSL 3.0 or newer; macOS's built-in ``/usr/bin/openssl`` is LibreSSL and
 cannot do it.
 
-Exit codes match ``depo verify``: 0 verified, 1 broken, 2 could not run.
+Exit codes match ``depo verify``: 0 intact, 1 broken, 2 could not run.
 """
 
 from __future__ import annotations
@@ -284,7 +296,7 @@ class ChainResult:
     def summary(self) -> str:
         if self.ok:
             return (
-                f"OK  {self.events_checked} events verified"
+                f"OK  {self.events_checked} events, record intact"
                 f"{f' for {self.run_id}' if self.run_id else ''}"
             )
         first = self.errors[0] if self.errors else None
@@ -640,7 +652,7 @@ _TST_INFO_OID = "1.2.840.113549.1.9.16.1.4"
 
 TS_NONE = "none"
 TS_UNAVAILABLE = "unavailable"
-TS_UNVERIFIED = "unverified"
+TS_UNCHECKED = "unchecked"
 TS_IMPRINT_MISMATCH = "imprint_mismatch"
 TS_MALFORMED = "malformed"
 TS_FAILED = {TS_IMPRINT_MISMATCH, "bad_timestamp", TS_MALFORMED}
@@ -803,7 +815,7 @@ def verify_timestamp(trace_path: str | os.PathLike[str], head_hash: str | None) 
 
     if head_hash is None:
         return TimestampResult(
-            TS_UNVERIFIED,
+            TS_UNCHECKED,
             "the chain did not verify far enough to compare the timestamp against",
             token.gen_time,
         )
@@ -819,10 +831,10 @@ def verify_timestamp(trace_path: str | os.PathLike[str], head_hash: str | None) 
             TS_MALFORMED, "the token's nonce does not match the request recorded beside it"
         )
     return TimestampResult(
-        TS_UNVERIFIED,
-        f"the authority asserts {token.gen_time}; imprint matches this trace's head, "
-        "signature not checked - verify it with:\n     "
-        + openssl_verify_command(head_hash, tsr, "<the TSA's CA certificate>"),
+        TS_UNCHECKED,
+        f"the authority asserts the trace was unedited since {token.gen_time}; its token "
+        "covers this trace's head, but the authority's signature is not checked - check it "
+        "with:\n     " + openssl_verify_command(head_hash, tsr, "<the TSA's CA certificate>"),
         token.gen_time,
     )
 

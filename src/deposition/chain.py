@@ -106,8 +106,10 @@ class ChainResult:
 
     def summary(self) -> str:
         if self.ok:
+            # "intact", never "verified": this checks the record is unedited,
+            # not that the host-attested events in it happened (ADR 016).
             return (
-                f"OK  {self.events_checked} events verified"
+                f"OK  {self.events_checked} events, record intact"
                 f"{f' for {self.run_id}' if self.run_id else ''}"
             )
         first = self.errors[0] if self.errors else None
