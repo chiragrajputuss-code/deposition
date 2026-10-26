@@ -19,6 +19,7 @@ evenings.
 | [011](011-claims-policy.md) | What we claim, and what we never claim | accepted |
 | [012](012-tool-capture-shipped.md) | Tool capture shipped; ADR 004's Phase 4 deferral is void | accepted |
 | [013](013-stream-entrypoint-capture.md) | `messages.stream()` is patched; content is still not captured | accepted |
+| [015](015-tool-definition-digests.md) | Tool definitions are sealed as digests | accepted |
 
 New ADRs are numbered sequentially and never edited after they are accepted —
 supersede them with a new one instead, so the reasoning stays readable in order.

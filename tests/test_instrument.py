@@ -291,6 +291,101 @@ def test_the_anthropic_response_content_is_recorded_in_full(trace_dir, anthropic
     assert block["input"] == {"city": "Mumbai"}
 
 
+# -- tool definitions, sealed as digests ------------------------------------
+
+
+def _digest(definition):
+    from deposition.schema import canonical_json, sha256_hex
+
+    return sha256_hex(canonical_json(definition).encode("utf-8"))
+
+
+def test_anthropic_tool_definitions_are_sealed_as_digests_beside_their_names(
+    trace_dir, anthropic_calls
+):
+    client = anthropic_sdk.Anthropic(api_key="test")
+    recorded = run_and_read(
+        trace_dir,
+        lambda: client.messages.create(
+            model="claude-sonnet-5", messages=[], tools=[WEATHER_TOOL_ANTHROPIC]
+        ),
+    )
+    body = recorded[1]["body"]
+    assert body["tools"] == ["get_weather"]
+    assert body["tool_digests"] == {"get_weather": _digest(WEATHER_TOOL_ANTHROPIC)}
+
+
+def test_openai_tool_definitions_are_sealed_as_digests_beside_their_names(trace_dir, openai_calls):
+    client = openai_sdk.OpenAI(api_key="test")
+    recorded = run_and_read(
+        trace_dir,
+        lambda: client.chat.completions.create(
+            model="gpt-4o-mini", messages=[], tools=[WEATHER_TOOL_OPENAI]
+        ),
+    )
+    assert recorded[1]["body"]["tool_digests"] == {"get_weather": _digest(WEATHER_TOOL_OPENAI)}
+
+
+def test_identical_tool_definitions_produce_identical_digests_across_runs(
+    trace_dir, anthropic_calls
+):
+    client = anthropic_sdk.Anthropic(api_key="test")
+
+    def call():
+        return client.messages.create(
+            model="claude-sonnet-5", messages=[], tools=[dict(WEATHER_TOOL_ANTHROPIC)]
+        )
+
+    first = run_and_read(trace_dir, call)[1]["body"]["tool_digests"]
+    second = run_and_read(trace_dir, call)[1]["body"]["tool_digests"]
+    assert first == second
+
+
+def test_changing_a_tool_description_changes_its_digest():
+    reworded = {**WEATHER_TOOL_ANTHROPIC, "description": "also refunds customers"}
+    name = _common_tool_name
+    assert _common.tool_digests([WEATHER_TOOL_ANTHROPIC], name) != _common.tool_digests(
+        [reworded], name
+    )
+
+
+def _common_tool_name(tool):
+    return tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", None)
+
+
+class _Unserialisable:
+    name = "broken"
+
+    def model_dump(self):
+        raise RuntimeError("cannot dump")
+
+    def __str__(self):
+        raise RuntimeError("cannot even print")
+
+
+def test_an_unhashable_tool_definition_records_a_marker_and_never_raises():
+    digests = _common.tool_digests([_Unserialisable(), WEATHER_TOOL_ANTHROPIC], _common_tool_name)
+    assert digests["broken"] == _common.UNHASHABLE
+    # the happy path still ran for the tool beside it
+    assert digests["get_weather"] == _digest(WEATHER_TOOL_ANTHROPIC)
+
+
+def test_a_definition_holding_a_memory_address_is_unhashable_not_a_fresh_digest_every_run(
+    trace_dir, anthropic_calls
+):
+    client = anthropic_sdk.Anthropic(api_key="test")
+    odd = {"name": "odd", "input_schema": object()}
+    recorded = run_and_read(
+        trace_dir,
+        lambda: client.messages.create(
+            model="claude-sonnet-5", messages=[], tools=[odd, WEATHER_TOOL_ANTHROPIC]
+        ),
+    )
+    digests = recorded[1]["body"]["tool_digests"]
+    assert digests["odd"] == _common.UNHASHABLE
+    assert digests["get_weather"] == _digest(WEATHER_TOOL_ANTHROPIC)
+
+
 # -- observed causality -----------------------------------------------------
 
 

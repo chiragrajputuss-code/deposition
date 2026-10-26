@@ -51,7 +51,9 @@ def describe_request(kwargs: dict[str, Any]) -> dict[str, Any]:
     if kwargs.get("instructions") is not None:
         body["instructions"] = jsonable(kwargs["instructions"])
     if kwargs.get("tools"):
-        body["tools"] = [_tool_name(t) for t in kwargs["tools"]]
+        tools = list(kwargs["tools"])
+        body["tools"] = [_tool_name(t) for t in tools]
+        body["tool_digests"] = _common.tool_digests(tools, _tool_name)
     if kwargs.get("stream"):
         body["streamed"] = True
     return body

@@ -241,6 +241,17 @@ spying on every candidate rather than trusting the method name. LangGraph's
 the compatibility claim keeps meaning something instead of quietly describing
 a version nobody runs anymore.
 
+**Tool definitions are sealed too, as digests.** Each `llm_call` made through
+the OpenAI or Anthropic SDK records, beside the tool names, a SHA-256 of every
+tool definition (name, description, input schema) exactly as the model was
+shown it. `depo diff` names a tool whose definition changed between two runs,
+or that appeared or disappeared; `depo audit` flags a definition that changed
+mid-run. Digests rather than full text, because they detect any change and keep
+traces small. Not covered: definitions that never pass through an instrumented
+provider SDK. Not built: pinning approved definitions in the mandate - proposed
+in [ADR 015](docs/decisions/015-tool-definition-digests.md), waiting for someone
+to need it.
+
 ## Install
 
 ```console

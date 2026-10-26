@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import functools
 import math
+import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ..schema import EventType
+from ..schema import EventType, canonical_json, sha256_hex
 
 if TYPE_CHECKING:  # pragma: no cover
     from .. import Recorder
@@ -40,6 +41,41 @@ __all__ = [
 #: How deep to walk a response before giving up and stringifying. Guards against
 #: cyclic or pathologically nested provider objects.
 MAX_DEPTH = 12
+
+
+#: Recorded in place of a digest when a definition cannot be hashed reproducibly.
+UNHASHABLE = "<unhashable>"
+
+#: ``jsonable`` falls back to ``str()``, and a default repr embeds a memory
+#: address that changes every run - hashing it would report a changed tool on
+#: every run, which is worse than reporting nothing.
+_MEMORY_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+>")
+
+
+def tool_digests(tools: Iterable[Any], name_of: Callable[[Any], Any]) -> dict[str, str]:
+    """``{tool name: sha256 of its RFC 8785 canonical definition}``, exactly as sent.
+
+    Digests rather than full definitions: they detect any change, keep traces
+    small, and reproduce in any language. Never raises - a definition that
+    cannot be hashed records :data:`UNHASHABLE` and the rest still are.
+    """
+    digests: dict[str, str] = {}
+    for tool in tools:
+        try:
+            name = name_of(tool)
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(name, str) or not name:
+            continue
+        try:
+            text = canonical_json(jsonable(tool))
+        except Exception:  # noqa: BLE001
+            digests[name] = UNHASHABLE
+            continue
+        digests[name] = (
+            UNHASHABLE if _MEMORY_ADDRESS.search(text) else sha256_hex(text.encode("utf-8"))
+        )
+    return digests
 
 
 def jsonable(value: Any, _depth: int = 0) -> Any:

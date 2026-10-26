@@ -257,6 +257,15 @@ def cmd_audit(args: argparse.Namespace) -> int:
     result = audit_mandate(events)
     print(f"{result.summary()}  [{args.trace}]")
 
+    # Informational, never a violation: the mandate vocabulary does not pin
+    # tool definitions (ADR 015), but a definition changing under the model
+    # mid-run is the first thing a security review asks about.
+    definitions = _tool_definitions([e for e in events if isinstance(e, dict)])
+    for name, entries in sorted(definitions.items()):
+        if len(entries) > 1:
+            changes = " -> ".join(f"{digest[:6]}... at seq {seq}" for digest, seq in entries)
+            print(f"  !! tool definition changed mid-run: {name} ({changes})")
+
     if result.mandate is None:
         print("  Record a mandate with deposition.init(mandate={...}) to make runs auditable.")
         return EXIT_USAGE
@@ -457,16 +466,58 @@ def cmd_diff(args: argparse.Namespace) -> int:
         for event in right_events[j1:j2]:
             changes.append(f"  + seq {event.get('seq')}  {_summarize(event)}")
 
+    tool_changes = _tool_changes(left_events, right_events)
+
     print(f"--- {args.left}  ({len(left_events)} events)")
     print(f"+++ {args.right}  ({len(right_events)} events)")
-    if not changes:
+    if not changes and not tool_changes:
         print("no differences in the recorded steps")
         return EXIT_OK
 
-    print(f"first divergence at seq {first_divergence}")
+    for line in tool_changes:
+        print(line)
+    if changes:
+        print(f"first divergence at seq {first_divergence}")
     for line in changes:
         print(line)
     return EXIT_OK
+
+
+def _tool_definitions(events: list[dict[str, Any]]) -> dict[str, list[tuple[str, Any]]]:
+    """Every tool the model was shown, with each distinct definition digest in
+    the order first seen and the seq where it first appeared."""
+    seen: dict[str, list[tuple[str, Any]]] = {}
+    for event in events:
+        if event.get("type") != "llm_call":
+            continue
+        body = event.get("body") or {}
+        for name in body.get("tools") or []:
+            if isinstance(name, str):
+                seen.setdefault(name, [])
+        digests = body.get("tool_digests")
+        if not isinstance(digests, dict):
+            continue
+        for name, digest in digests.items():
+            entries = seen.setdefault(name, [])
+            if digest != "<unhashable>" and all(d != digest for d, _ in entries):
+                entries.append((digest, event.get("seq")))
+    return seen
+
+
+def _short(digests: list[str]) -> str:
+    return "/".join(f"{d[:6]}..." for d in digests)
+
+
+def _tool_changes(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[str]:
+    before, after = _tool_definitions(left), _tool_definitions(right)
+    lines = [f"  - tool removed: {name}" for name in sorted(before.keys() - after.keys())]
+    lines += [f"  + tool added: {name}" for name in sorted(after.keys() - before.keys())]
+    for name in sorted(before.keys() & after.keys()):
+        old = [d for d, _ in before[name]]
+        new = [d for d, _ in after[name]]
+        if old and new and old != new:
+            lines.append(f"  ! tool definition changed: {name} ({_short(old)} -> {_short(new)})")
+    return lines
 
 
 def _body_differs(left: dict[str, Any], right: dict[str, Any]) -> bool:
@@ -474,7 +525,19 @@ def _body_differs(left: dict[str, Any], right: dict[str, Any]) -> bool:
     return _comparable(left.get("body") or {}) != _comparable(right.get("body") or {})
 
 
-_VOLATILE = {"latency_ms", "duration_ms", "env", "sdk_version", "cost_usd", "usage", "totals"}
+#: Fields that differ on every run by nature, plus the tool lists, which
+#: :func:`_tool_changes` reports by name instead of as an opaque body change.
+_VOLATILE = {
+    "latency_ms",
+    "duration_ms",
+    "env",
+    "sdk_version",
+    "cost_usd",
+    "usage",
+    "totals",
+    "tools",
+    "tool_digests",
+}
 
 
 def _comparable(body: Any) -> Any:
