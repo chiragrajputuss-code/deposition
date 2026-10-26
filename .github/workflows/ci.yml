@@ -34,6 +34,54 @@ jobs:
             echo "::error::RFC 8785 cross-check skipped - node missing or guard wrong"
             exit 1
           fi
+      - name: the standalone verifier's openssl checks must actually have run
+        run: |
+          python -m pytest tests/test_verify_standalone.py -q -rs 2>&1 | tee out.txt
+          if grep -q "skipped" out.txt; then
+            echo "::error::openssl cross-check skipped - OpenSSL 3 missing or guard wrong"
+            exit 1
+          fi
+
+  standalone-verifier:
+    name: standalone verifier (no deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      # The promise is "verify with one file and a bare interpreter". Nothing is
+      # installed in this job - not even this package - and the first step
+      # proves it, because a check that quietly ran with deps is worth nothing.
+      - name: the interpreter really is bare
+        run: |
+          for module in cryptography deposition; do
+            if python -c "import $module" 2>/dev/null; then
+              echo "::error::$module is importable - this job must run with nothing installed"
+              exit 1
+            fi
+          done
+          openssl version | grep -q "^OpenSSL 3" || { echo "::error::needs OpenSSL 3"; exit 1; }
+      - name: verifies the demo trace, then openssl checks its signature
+        run: |
+          python -I scripts/verify_standalone.py src/deposition/_demo/run_demo.jsonl \
+            --pubkey src/deposition/_demo/run_demo.pem.pub --json > out.json
+          cmd=$(python -c "import json; print(json.load(open('out.json'))[0]['openssl_command'] or '')")
+          if [ -z "$cmd" ]; then
+            echo "::error::no openssl command printed - the fallback did not run"; exit 1
+          fi
+          eval "$cmd"
+      - name: an edited event body exits 1
+        run: |
+          cp src/deposition/_demo/run_demo.jsonl edited.jsonl
+          sed -i '3s/demo-model-1/demo-model-2/' edited.jsonl
+          set +e
+          python -I scripts/verify_standalone.py edited.jsonl
+          code=$?
+          set -e
+          if [ "$code" -ne 1 ]; then
+            echo "::error::expected exit 1 for an edited trace, got $code"; exit 1
+          fi
 
   lint:
     runs-on: ubuntu-latest

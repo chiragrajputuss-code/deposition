@@ -335,6 +335,16 @@ def test_verify_fails_an_unsigned_trace_when_a_signature_is_required(tmp_path, c
     assert main(["verify", str(path), "--require-signature"]) == EXIT_BROKEN
 
 
+def test_verify_fails_an_unpinned_signature_when_a_signature_is_required(tmp_path, capsys, key):
+    """ADR 005 and the flag's own help: required means verified against a key the
+    caller pinned. A sidecar matching the key it carries itself is what a
+    rewriter can produce, so it must not pass."""
+    path = write_run(tmp_path / "run.jsonl")
+    sign_file(path, key)
+    assert main(["verify", str(path), "--require-signature"]) == EXIT_BROKEN
+    assert main(["verify", str(path), "--require-signature", "--pubkey", key.public_hex]) == EXIT_OK
+
+
 def test_verify_confirms_a_signature_against_a_pinned_key(tmp_path, capsys, key):
     path = write_run(tmp_path / "run.jsonl")
     sign_file(path, key)

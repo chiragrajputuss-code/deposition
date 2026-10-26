@@ -106,10 +106,26 @@ def _check_signature(path: str, result: ChainResult, pinned: str | None) -> Sign
     )
 
 
+def _dropped(events: list[Any]) -> int:
+    """What the recorder itself reported dropping. The chain cannot see an event
+    that never reached it, so this count is the only signal there is."""
+    for event in events:
+        if isinstance(event, dict) and event.get("type") == "run_end":
+            body = event.get("body") if isinstance(event.get("body"), dict) else {}
+            totals = body.get("totals") if isinstance(body.get("totals"), dict) else {}
+            try:
+                return int(totals.get("dropped") or 0)
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
 def _signature_ok(signature: SignatureResult, *, required: bool) -> bool:
     if signature.status in _SIGNATURE_FAILED:
         return False
-    return signature.trusted if required else True
+    # Required means verified against a pinned key: an unpinned signature only
+    # shows the sidecar matches a key it carries itself (ADR 005).
+    return signature.ok if required else True
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
@@ -120,10 +136,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
         except SignatureError as exc:
             _die(str(exc))
 
-    results: list[tuple[str, ChainResult, SignatureResult]] = []
+    results: list[tuple[str, list[Any], ChainResult, SignatureResult]] = []
     for path in args.trace:
-        result = verify(_load(path))
-        results.append((path, result, _check_signature(path, result, pinned)))
+        events = _load(path)
+        result = verify(events)
+        results.append((path, events, result, _check_signature(path, result, pinned)))
 
     required = args.require_signature
     if args.json:
@@ -137,6 +154,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                         "run_id": result.run_id,
                         "events_checked": result.events_checked,
                         "head_hash": result.head_hash,
+                        "dropped": _dropped(events),
                         "signature": {
                             "status": signature.status,
                             "message": signature.message,
@@ -148,15 +166,15 @@ def cmd_verify(args: argparse.Namespace) -> int:
                             for e in result.errors
                         ],
                     }
-                    for path, result, signature in results
+                    for path, events, result, signature in results
                 ],
                 indent=2,
             )
         )
     else:
-        for path, result, signature in results:
+        for path, events, result, signature in results:
             print(f"{result.summary()}  [{path}]")
-            if any(isinstance(e, dict) and e.get("v") == "0.1" for e in _load(path)):
+            if any(isinstance(e, dict) and e.get("v") == "0.1" for e in events):
                 # ADR 008: v0 predates RFC 8785 canonicalisation, so only this
                 # SDK can verify it. Said out loud, never implied away.
                 print(
@@ -170,6 +188,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     "  This trace is not evidence of what happened. "
                     "Everything before the reported event is still intact."
                 )
+            dropped = _dropped(events)
+            if dropped:
+                print(f"  -- {dropped} dropped event(s) - the record admits gaps")
             # "!!" is reserved for a signature that actually failed; an absent or
             # uncheckable one is a gap, not an alarm, and must not read like one.
             if signature.ok:
@@ -191,7 +212,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         EXIT_OK
         if all(
             result.ok and _signature_ok(signature, required=required)
-            for _, result, signature in results
+            for _, _, result, signature in results
         )
         else EXIT_BROKEN
     )

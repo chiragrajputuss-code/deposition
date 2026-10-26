@@ -343,6 +343,25 @@ produced it. The SDK fills this in where it can — a tool call caused by the LL
 message that requested it — and the viewer walks it backwards to answer "why did
 this happen?".
 
+## Verify a trace without installing Deposition
+
+```console
+curl -O https://raw.githubusercontent.com/chiragrajputuss-code/deposition/main/scripts/verify_standalone.py
+python3 verify_standalone.py run_9f3kQ2.jsonl --pubkey signing.pem.pub
+```
+
+[`scripts/verify_standalone.py`](scripts/verify_standalone.py) is one file,
+Python 3.10+ standard library only, short enough to read before you run it. It
+does not import this package. It is a second, independent copy of the chain and
+signature checks, and the test suite fails if it ever disagrees with
+`depo verify` on any fixture: same verdicts, same error codes, same exit codes.
+CI runs it on an interpreter with nothing installed.
+
+Without the `cryptography` package it still checks the chain, the head hash,
+the run and the key, then prints an `openssl` command that checks the signature
+itself (OpenSSL 3.0+), so the last step runs on a tool you already trust.
+Without `--pubkey` it never says *verified*.
+
 ## Importing Claude Code
 
 Claude Code already records what it did — every model turn, every `Bash`
