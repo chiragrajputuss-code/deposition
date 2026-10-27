@@ -1,0 +1,66 @@
+name: Publish to PyPI
+
+# Runs when a GitHub release is published. Uploads to PyPI with trusted
+# publishing (OIDC): no API token is stored anywhere - PyPI trusts this exact
+# repository, workflow and environment, configured once on pypi.org.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: build and test the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # A release tag that disagrees with the version inside the package would
+      # publish something other than what the release page says.
+      - name: the tag matches the package version
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::release tag $GITHUB_REF_NAME does not match pyproject version $version"
+            exit 1
+          fi
+      - run: pip install -e '.[dev,viewer,signing]' build
+      - run: python -m pytest -q
+      - run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    name: upload to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  standalone-verifier:
+    name: attach the standalone verifier to the release
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: upload verify_standalone.py and its SHA-256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp scripts/verify_standalone.py .
+          sha256sum verify_standalone.py > verify_standalone.py.sha256
+          gh release upload "$GITHUB_REF_NAME" verify_standalone.py verify_standalone.py.sha256 --clobber
