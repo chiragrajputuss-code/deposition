@@ -5,7 +5,7 @@ description = "A verbatim, tamper-evident record of every AI agent run, with loc
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Canvas_Dev" }]
+authors = [{ name = "Chirag Rajput" }]
 keywords = ["llm", "agents", "observability", "replay", "audit", "tracing"]
 classifiers = [
   "Development Status :: 3 - Alpha",

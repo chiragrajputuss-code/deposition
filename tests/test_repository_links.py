@@ -28,11 +28,18 @@ def test_project_urls_point_at_the_same_repository_as_the_readme():
     assert urls["Source"] == REPO
 
 
-def test_no_file_a_newcomer_reads_links_to_a_repository_that_does_not_exist():
+def test_no_file_a_newcomer_reads_mentions_the_old_canvas_name_or_dead_repository():
     paths = [ROOT / "README.md", ROOT / "pyproject.toml", *ROOT.glob(".github/**/*.*")]
     paths += list((ROOT / "docs").rglob("*.md"))
-    offenders = [str(p.relative_to(ROOT)) for p in paths if "canvas-dev" in p.read_text("utf-8")]
+    offenders = [
+        str(p.relative_to(ROOT)) for p in paths if "canvas" in p.read_text("utf-8").lower()
+    ]
     assert offenders == []
+
+
+def test_the_package_author_is_the_maintainers_own_name():
+    text = (ROOT / "pyproject.toml").read_text("utf-8")
+    assert 'authors = [{ name = "Chirag Rajput" }]' in text
 
 
 def test_the_issue_template_contact_link_points_at_this_repository():
