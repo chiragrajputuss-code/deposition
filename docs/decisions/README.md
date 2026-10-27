@@ -22,6 +22,7 @@ evenings.
 | [014](014-rfc3161-time-anchoring.md) | Independent proof of time: RFC 3161 timestamps on the chain head | accepted |
 | [015](015-tool-definition-digests.md) | Tool definitions are sealed as digests | accepted |
 | [016](016-host-attested-and-corroborated.md) | Host-attested and corroborated: integrity is not verification | accepted |
+| [017](017-verify-reports-completeness.md) | `verify` tells a finished run from an intact prefix | accepted |
 
 New ADRs are numbered sequentially and never edited after they are accepted —
 supersede them with a new one instead, so the reasoning stays readable in order.

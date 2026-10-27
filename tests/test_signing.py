@@ -345,6 +345,22 @@ def test_verify_fails_an_unpinned_signature_when_a_signature_is_required(tmp_pat
     assert main(["verify", str(path), "--require-signature", "--pubkey", key.public_hex]) == EXIT_OK
 
 
+def test_a_signature_over_more_events_than_the_trace_holds_says_the_end_is_missing(tmp_path, key):
+    path = write_run(tmp_path / "run.jsonl")
+    sidecar = sign_file(path, key)
+    shorter = verify_file(path)
+    result = verify_sidecar(
+        sidecar,
+        head_hash="0" * 64,
+        run_id=shorter.run_id,
+        expected_public_key=key.public_hex,
+        events=2,
+    )
+    assert result.status == "head_mismatch"
+    assert result.message == "signature covers 4 events but this trace has 2 - its end is missing"
+    assert result.events == 4
+
+
 def test_verify_confirms_a_signature_against_a_pinned_key(tmp_path, capsys, key):
     path = write_run(tmp_path / "run.jsonl")
     sign_file(path, key)

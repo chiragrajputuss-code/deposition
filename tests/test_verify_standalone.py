@@ -83,7 +83,7 @@ def build_events(run_id="run_agree1", *, dropped=0):
             ts=TS,
         ),
         b.append("decision", {"label": "refund", "detail": -0.0}, caused_by=[2], ts=TS),
-        b.append("run_end", {"status": "ok", "totals": {"steps": 4, "dropped": dropped}}, ts=TS),
+        b.append("run_end", {"status": "ok", "totals": {"steps": 3, "dropped": dropped}}, ts=TS),
     ]
 
 

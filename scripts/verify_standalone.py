@@ -458,6 +458,7 @@ class SignatureResult:
     public_key: str | None = None
     signed_at: str | None = None
     openssl_command: str | None = None
+    events: int | None = None
 
     @property
     def ok(self) -> bool:
@@ -553,6 +554,7 @@ def verify_sidecar(
     run_id: str | None = None,
     expected_public_key: str | None = None,
     use_openssl: bool = False,
+    events: int | None = None,
 ) -> SignatureResult:
     """Check a sidecar against the chain that was just verified. Never raises."""
     if sidecar is None:
@@ -572,6 +574,9 @@ def verify_sidecar(
         return SignatureResult(MALFORMED, f"unsupported signature algorithm {claims.get('alg')!r}")
 
     signed_at = claims.get("signed_at") if isinstance(claims.get("signed_at"), str) else None
+    signed_events = claims.get("events")
+    if not isinstance(signed_events, int) or isinstance(signed_events, bool):
+        signed_events = None
 
     def result(status: str, message: str, command: str | None = None) -> SignatureResult:
         return SignatureResult(status, message, public_key, signed_at, command)
@@ -598,11 +603,19 @@ def verify_sidecar(
     # Whether or not the signature itself could be checked here, these need no
     # cryptography: is it about *this* trace, and signed by the expected key?
     if head_hash is not None and claims["head_hash"] != head_hash:
-        return result(
-            HEAD_MISMATCH,
-            f"signature covers head {claims['head_hash'][:12]}... but this trace ends at "
-            f"{head_hash[:12]}... - the trace was rewritten after it was signed",
-        )
+        if signed_events is not None and events is not None and signed_events > events:
+            message = (
+                f"signature covers {signed_events} events but this trace has {events} - "
+                "its end is missing"
+            )
+        else:
+            message = (
+                f"signature covers head {claims['head_hash'][:12]}... but this trace ends at "
+                f"{head_hash[:12]}... - the trace was rewritten after it was signed"
+            )
+        mismatch = result(HEAD_MISMATCH, message)
+        mismatch.events = signed_events
+        return mismatch
     if run_id is not None and claims.get("run_id") not in (None, run_id):
         return result(
             HEAD_MISMATCH,
@@ -872,7 +885,48 @@ def _check_signature(
         run_id=result.run_id,
         expected_public_key=pinned,
         use_openssl=use_openssl,
+        events=result.events_checked,
     )
+
+
+_INCOMPLETE = {"incomplete", "count_mismatch"}
+
+
+def _completeness(events: list[Any], result: ChainResult) -> tuple[str, str]:
+    """Whether the trace is the whole run, not just an intact prefix of one."""
+    if not result.ok:
+        return "unknown", "not checked - the chain does not hold"
+    run_end = next(
+        (e for e in reversed(events) if isinstance(e, dict) and e.get("type") == "run_end"),
+        None,
+    )
+    if run_end is None:
+        return "incomplete", (
+            "no run_end - the run was cut off or never finished; every event present is "
+            "intact, but this is not the whole run"
+        )
+    body = run_end.get("body") if isinstance(run_end.get("body"), dict) else {}
+    totals = body.get("totals") if isinstance(body.get("totals"), dict) else {}
+    steps = totals.get("steps")
+    if isinstance(steps, int) and not isinstance(steps, bool):
+        present = result.events_checked - 2
+        if steps != present:
+            return "count_mismatch", (
+                f"run_end declares {steps} steps but the trace holds {present} - "
+                "it was rebuilt after the run ended"
+            )
+        return "complete", f"complete - ends with run_end, {steps} steps as declared"
+    return "complete", "complete - ends with run_end (no step count declared to compare)"
+
+
+def _headline(result: ChainResult, completeness: tuple[str, str]) -> str:
+    status, message = completeness
+    if status == "incomplete":
+        where = f" for {result.run_id}" if result.run_id else ""
+        return f"INCOMPLETE  {result.events_checked} events intact{where}, but no run_end"
+    if status == "count_mismatch":
+        return f"BROKEN  {message}"
+    return result.summary()
 
 
 def _signature_ok(signature: SignatureResult, *, required: bool) -> bool:
@@ -918,12 +972,22 @@ def main(argv: list[str] | None = None) -> int:
         result = verify(events)
         signature = _check_signature(path, result, pinned, args.openssl)
         stamp = verify_timestamp(path, result.head_hash)
-        checked.append((path, events, result, signature, stamp))
+        checked.append((path, events, result, signature, stamp, _completeness(events, result)))
 
     required = args.require_signature
 
-    def passed(result: ChainResult, signature: SignatureResult, stamp: TimestampResult) -> bool:
-        return result.ok and _signature_ok(signature, required=required) and not stamp.failed
+    def passed(
+        result: ChainResult,
+        signature: SignatureResult,
+        stamp: TimestampResult,
+        completeness: tuple[str, str],
+    ) -> bool:
+        return (
+            result.ok
+            and completeness[0] not in _INCOMPLETE
+            and _signature_ok(signature, required=required)
+            and not stamp.failed
+        )
 
     if args.json:
         print(
@@ -931,12 +995,13 @@ def main(argv: list[str] | None = None) -> int:
                 [
                     {
                         "trace": path,
-                        "ok": passed(result, signature, stamp),
+                        "ok": passed(result, signature, stamp, completeness),
                         "chain_ok": result.ok,
                         "run_id": result.run_id,
                         "events_checked": result.events_checked,
                         "head_hash": result.head_hash,
                         "dropped": dropped_events(events),
+                        "completeness": {"status": completeness[0], "message": completeness[1]},
                         "signature": {
                             "status": signature.status,
                             "message": signature.message,
@@ -954,14 +1019,14 @@ def main(argv: list[str] | None = None) -> int:
                             for e in result.errors
                         ],
                     }
-                    for path, events, result, signature, stamp in checked
+                    for path, events, result, signature, stamp, completeness in checked
                 ],
                 indent=2,
             )
         )
     else:
-        for path, events, result, signature, stamp in checked:
-            print(f"{result.summary()}  [{path}]")
+        for path, events, result, signature, stamp, completeness in checked:
+            print(f"{_headline(result, completeness)}  [{path}]")
             if any(isinstance(e, dict) and e.get("v") == "0.1" for e in events):
                 print(
                     "  note: schema v0.1 trace - predates RFC 8785 canonicalisation, so only "
@@ -977,11 +1042,18 @@ def main(argv: list[str] | None = None) -> int:
             dropped = dropped_events(events)
             if dropped:
                 print(f"  -- {dropped} dropped event(s) - the record admits gaps")
+            status, message = completeness
+            if status != "unknown":
+                marker = _marker(status == "complete", status in _INCOMPLETE)
+                print(f"  {marker}completeness: {message}")
             print(
                 f"  {_marker(signature.ok, signature.status in _SIGNATURE_FAILED)}"
                 f"signature: {signature.message}"
             )
-            if result.ok and signature.status == HEAD_MISMATCH:
+            cut = signature.events is not None and signature.events > result.events_checked
+            if result.ok and signature.status == HEAD_MISMATCH and cut:
+                print("  Everything present is intact, but the signed end of the run is missing.")
+            elif result.ok and signature.status == HEAD_MISMATCH:
                 print(
                     "  The chain re-seals cleanly, so it was rebuilt after signing. "
                     "Trust the signature, not the chain."
@@ -990,7 +1062,7 @@ def main(argv: list[str] | None = None) -> int:
 
     return (
         EXIT_OK
-        if all(passed(result, signature, stamp) for _, _, result, signature, stamp in checked)
+        if all(passed(r, sig, stamp, comp) for _, _, r, sig, stamp, comp in checked)
         else EXIT_BROKEN
     )
 

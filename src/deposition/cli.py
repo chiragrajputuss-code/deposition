@@ -142,6 +142,7 @@ def _check_signature(path: str, result: ChainResult, pinned: str | None) -> Sign
         head_hash=result.head_hash,
         run_id=result.run_id,
         expected_public_key=pinned,
+        events=result.events_checked,
     )
 
 
@@ -157,6 +158,53 @@ def _dropped(events: list[Any]) -> int:
             except (TypeError, ValueError):
                 return 0
     return 0
+
+
+#: A record that cannot show it is the whole run does not pass (ADR 017).
+_INCOMPLETE = {"incomplete", "count_mismatch"}
+
+
+def _completeness(events: list[Any], result: ChainResult) -> tuple[str, str]:
+    """Whether the trace is the whole run, not just an intact prefix of one.
+
+    Cutting events off the end leaves a shorter chain that verifies on its
+    own, so the chain alone cannot tell a finished run from a truncated one.
+    ``run_end`` can: it is sealed last, and it declares how many steps the run
+    recorded.
+    """
+    if not result.ok:
+        return "unknown", "not checked - the chain does not hold"
+    run_end = next(
+        (e for e in reversed(events) if isinstance(e, dict) and e.get("type") == "run_end"),
+        None,
+    )
+    if run_end is None:
+        return "incomplete", (
+            "no run_end - the run was cut off or never finished; every event present is "
+            "intact, but this is not the whole run"
+        )
+    body = run_end.get("body") if isinstance(run_end.get("body"), dict) else {}
+    totals = body.get("totals") if isinstance(body.get("totals"), dict) else {}
+    steps = totals.get("steps")
+    if isinstance(steps, int) and not isinstance(steps, bool):
+        present = result.events_checked - 2
+        if steps != present:
+            return "count_mismatch", (
+                f"run_end declares {steps} steps but the trace holds {present} - "
+                "it was rebuilt after the run ended"
+            )
+        return "complete", f"complete - ends with run_end, {steps} steps as declared"
+    return "complete", "complete - ends with run_end (no step count declared to compare)"
+
+
+def _headline(result: ChainResult, completeness: tuple[str, str]) -> str:
+    status, message = completeness
+    if status == "incomplete":
+        where = f" for {result.run_id}" if result.run_id else ""
+        return f"INCOMPLETE  {result.events_checked} events intact{where}, but no run_end"
+    if status == "count_mismatch":
+        return f"BROKEN  {message}"
+    return result.summary()
 
 
 def _signature_ok(signature: SignatureResult, *, required: bool) -> bool:
@@ -175,7 +223,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
         except SignatureError as exc:
             _die(str(exc))
 
-    results: list[tuple[str, list[Any], ChainResult, SignatureResult, TimestampResult]] = []
+    results: list[
+        tuple[str, list[Any], ChainResult, SignatureResult, TimestampResult, tuple[str, str]]
+    ] = []
     for path in args.trace:
         events = _load(path)
         result = verify(events)
@@ -186,13 +236,24 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 result,
                 _check_signature(path, result, pinned),
                 verify_timestamp(path, result.head_hash, ca_file=args.tsa_ca),
+                _completeness(events, result),
             )
         )
 
     required = args.require_signature
 
-    def passed(result: ChainResult, signature: SignatureResult, stamp: TimestampResult) -> bool:
-        return result.ok and _signature_ok(signature, required=required) and not stamp.failed
+    def passed(
+        result: ChainResult,
+        signature: SignatureResult,
+        stamp: TimestampResult,
+        completeness: tuple[str, str],
+    ) -> bool:
+        return (
+            result.ok
+            and completeness[0] not in _INCOMPLETE
+            and _signature_ok(signature, required=required)
+            and not stamp.failed
+        )
 
     if args.json:
         print(
@@ -200,12 +261,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 [
                     {
                         "trace": path,
-                        "ok": passed(result, signature, stamp),
+                        "ok": passed(result, signature, stamp, completeness),
                         "chain_ok": result.ok,
                         "run_id": result.run_id,
                         "events_checked": result.events_checked,
                         "head_hash": result.head_hash,
                         "dropped": _dropped(events),
+                        "completeness": {"status": completeness[0], "message": completeness[1]},
                         "signature": {
                             "status": signature.status,
                             "message": signature.message,
@@ -222,14 +284,14 @@ def cmd_verify(args: argparse.Namespace) -> int:
                             for e in result.errors
                         ],
                     }
-                    for path, events, result, signature, stamp in results
+                    for path, events, result, signature, stamp, completeness in results
                 ],
                 indent=2,
             )
         )
     else:
-        for path, events, result, signature, stamp in results:
-            print(f"{result.summary()}  [{path}]")
+        for path, events, result, signature, stamp, completeness in results:
+            print(f"{_headline(result, completeness)}  [{path}]")
             if any(isinstance(e, dict) and e.get("v") == "0.1" for e in events):
                 # ADR 008: v0 predates RFC 8785 canonicalisation, so only this
                 # SDK can verify it. Said out loud, never implied away.
@@ -247,13 +309,20 @@ def cmd_verify(args: argparse.Namespace) -> int:
             dropped = _dropped(events)
             if dropped:
                 print(f"  -- {dropped} dropped event(s) - the record admits gaps")
+            status, message = completeness
+            if status != "unknown":
+                marker = _marker(status == "complete", status in _INCOMPLETE)
+                print(f"  {marker}completeness: {message}")
             # "!!" is reserved for a check that actually failed; an absent or
             # uncheckable one is a gap, not an alarm, and must not read like one.
             print(
                 f"  {_marker(signature.ok, signature.status in _SIGNATURE_FAILED)}"
                 f"signature: {signature.message}"
             )
-            if result.ok and signature.status == signing.HEAD_MISMATCH:
+            cut = signature.events is not None and signature.events > result.events_checked
+            if result.ok and signature.status == signing.HEAD_MISMATCH and cut:
+                print("  Everything present is intact, but the signed end of the run is missing.")
+            elif result.ok and signature.status == signing.HEAD_MISMATCH:
                 # The chain is internally consistent and still not the trace that
                 # was signed: exactly the edit-and-reseal the signature exists for.
                 print(
@@ -266,7 +335,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     return (
         EXIT_OK
-        if all(passed(result, signature, stamp) for _, _, result, signature, stamp in results)
+        if all(passed(r, sig, stamp, comp) for _, _, r, sig, stamp, comp in results)
         else EXIT_BROKEN
     )
 

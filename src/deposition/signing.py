@@ -272,6 +272,8 @@ class SignatureResult:
     message: str
     public_key: str | None = None
     signed_at: str | None = None
+    #: How many events the signature says the trace had, when it says.
+    events: int | None = None
 
     @property
     def ok(self) -> bool:
@@ -293,8 +295,13 @@ def verify_sidecar(
     head_hash: str | None,
     run_id: str | None = None,
     expected_public_key: str | None = None,
+    events: int | None = None,
 ) -> SignatureResult:
     """Check a sidecar against the chain that was just verified.
+
+    ``events`` is how many events that chain holds; when the signature covers
+    more, the trace's end is missing and the message says so.
+
 
     Never raises: like chain verification, a bad signature is a result the
     caller decides about, not an exception.
@@ -316,6 +323,9 @@ def verify_sidecar(
         return SignatureResult(MALFORMED, f"unsupported signature algorithm {claims.get('alg')!r}")
 
     signed_at = claims.get("signed_at") if isinstance(claims.get("signed_at"), str) else None
+    signed_events = claims.get("events")
+    if not isinstance(signed_events, int) or isinstance(signed_events, bool):
+        signed_events = None
 
     try:
         ed25519 = _ed25519()
@@ -342,12 +352,22 @@ def verify_sidecar(
 
     # The signature is authentic; now ask whether it is about *this* trace.
     if head_hash is not None and claims["head_hash"] != head_hash:
+        if signed_events is not None and events is not None and signed_events > events:
+            message = (
+                f"signature covers {signed_events} events but this trace has {events} - "
+                "its end is missing"
+            )
+        else:
+            message = (
+                f"signature covers head {claims['head_hash'][:12]}... but this trace ends at "
+                f"{head_hash[:12]}... - the trace was rewritten after it was signed"
+            )
         return SignatureResult(
             HEAD_MISMATCH,
-            f"signature covers head {claims['head_hash'][:12]}... but this trace ends at "
-            f"{head_hash[:12]}... - the trace was rewritten after it was signed",
+            message,
             public_key=public_key,
             signed_at=signed_at,
+            events=signed_events,
         )
     if run_id is not None and claims.get("run_id") not in (None, run_id):
         return SignatureResult(

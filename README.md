@@ -90,6 +90,7 @@ def run_agent(ticket):
 ```console
 $ depo verify ./deposition/run_9f3kQ2.jsonl
 OK  42 events, record intact for run_9f3kQ2
+  OK completeness: complete - ends with run_end, 40 steps as declared
 
 $ depo view ./deposition/run_9f3kQ2.jsonl
 serving replay viewer on http://127.0.0.1:7878
@@ -117,8 +118,9 @@ nobody has to discover it.
 **What a trace shows**
 
 - **The file was not altered after it was written.** No event was edited,
-  removed or reordered, and a trace cut short loses its `run_end`, which the
-  viewer reports as truncated. On its own, the chain shows this only against
+  removed or reordered. A trace cut short loses its `run_end`, and `depo
+  verify` reports it as incomplete and fails, even though every event left is
+  intact. On its own, the chain shows this only against
   someone who does not hold the file: anyone who does can edit an event and
   re-seal the rest.
 - **It was signed by a specific key, if you pin that key.** With `--pubkey`, an
@@ -347,6 +349,7 @@ forger cannot sign the new one.
 ```console
 $ depo verify run_9f3kQ2.jsonl --pubkey signing.pem.pub
 OK  42 events, record intact for run_9f3kQ2
+  OK completeness: complete - ends with run_end, 40 steps as declared
   OK signature: signature verified against 4200424479da...
 ```
 
@@ -362,6 +365,7 @@ catches the edit-and-reseal the chain cannot:
 ```console
 $ depo verify run_9f3kQ2.jsonl --pubkey signing.pem.pub
 OK  42 events, record intact for run_9f3kQ2
+  OK completeness: complete - ends with run_end, 40 steps as declared
   !! signature: signature covers head 9ce059683c05... but this trace ends at
      e36ebb6fc31b... - the trace was rewritten after it was signed
 ```
@@ -399,6 +403,7 @@ status file beside the trace records why there is no token.
 ```console
 $ depo verify run_9f3kQ2.jsonl --pubkey signing.pem.pub --tsa-ca tsa-ca.pem
 OK  42 events, record intact for run_9f3kQ2
+  OK completeness: complete - ends with run_end, 40 steps as declared
   OK signature: signature verified against 4200424479da...
   OK timestamp: unedited since 20261026090000Z - the authority's token checks out against tsa-ca.pem
 ```
