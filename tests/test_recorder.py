@@ -158,6 +158,79 @@ def test_an_agent_that_raises_is_recorded_as_a_failed_run(trace_dir):
     assert verify_file(path).ok
 
 
+# -- observed causality for hand-logged model turns (ADR 004) ----------------
+
+RESPONSE_SHAPES = {
+    "hand_logged": {"tool_calls": [{"name": "send_email"}]},
+    "openai_chat": {
+        "choices": [{"message": {"tool_calls": [{"function": {"name": "send_email"}}]}}]
+    },
+    "openai_tool_calls": {"tool_calls": [{"type": "function", "function": {"name": "send_email"}}]},
+    "anthropic": {"content": [{"type": "tool_use", "name": "send_email", "input": {}}]},
+    "openai_responses": {"output": [{"type": "function_call", "name": "send_email"}]},
+}
+
+
+def log_turn_then_tool(response, *, tool="send_email", caused_by=None):
+    def work():
+        turn = deposition.log("llm_call", {"response": response})
+        with deposition.step("tool_call", tool=tool, caused_by=caused_by):
+            pass
+        return turn
+
+    return work
+
+
+@pytest.mark.parametrize("shape", sorted(RESPONSE_SHAPES))
+def test_a_hand_logged_model_turn_that_names_a_tool_links_the_tool_call_that_follows(
+    trace_dir, shape
+):
+    events = read_events(record_run(trace_dir, log_turn_then_tool(RESPONSE_SHAPES[shape])))
+    turn = next(e for e in events if e["type"] == "llm_call")
+    tool = next(e for e in events if e["type"] == "tool_call")
+    assert tool["caused_by"] == [turn["seq"]]
+
+
+def test_a_tool_the_hand_logged_turn_never_named_gets_no_edge(trace_dir):
+    events = read_events(
+        record_run(trace_dir, log_turn_then_tool(RESPONSE_SHAPES["anthropic"], tool="delete"))
+    )
+    tool = next(e for e in events if e["type"] == "tool_call")
+    assert "caused_by" not in tool
+
+
+def test_an_explicit_caused_by_still_wins_over_the_observed_edge(trace_dir):
+    events = read_events(
+        record_run(trace_dir, log_turn_then_tool(RESPONSE_SHAPES["anthropic"], caused_by=[0]))
+    )
+    tool = next(e for e in events if e["type"] == "tool_call")
+    assert tool["caused_by"] == [0]
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        "a plain string",
+        {"tool_calls": "not a list"},
+        {"content": [None, 3, {"type": "tool_use", "name": 7}]},
+        {"choices": ["garbage"]},
+    ],
+)
+def test_an_unreadable_response_names_no_tools_and_still_records(trace_dir, response):
+    events = read_events(record_run(trace_dir, log_turn_then_tool(response)))
+    assert [e["type"] for e in events].count("llm_call") == 1
+    assert "caused_by" not in next(e for e in events if e["type"] == "tool_call")
+    assert verify_file(record_run(trace_dir)).ok
+
+
+def test_tool_names_survive_a_response_large_enough_to_become_a_blob(trace_dir):
+    response = {"text": "x" * 70_000, "tool_calls": [{"name": "send_email"}]}
+    events = read_events(record_run(trace_dir, log_turn_then_tool(response)))
+    turn = next(e for e in events if e["type"] == "llm_call")
+    tool = next(e for e in events if e["type"] == "tool_call")
+    assert tool["caused_by"] == [turn["seq"]]
+
+
 # -- recording must never break the host agent ------------------------------
 
 

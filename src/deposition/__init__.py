@@ -76,6 +76,47 @@ _RUN_STACK: contextvars.ContextVar[tuple[Run, ...]] = contextvars.ContextVar(
 )
 
 
+def _requested_tools(body: dict[str, Any]) -> list[str]:
+    """Tool names an ``llm_call``'s recorded response asked for (ADR 004).
+
+    Reads the shapes the providers return - Anthropic ``tool_use`` content
+    blocks, OpenAI chat ``tool_calls`` (bare or under ``choices``), Responses API
+    ``function_call`` items - and the plain ``tool_calls: [{"name": ...}]`` a
+    hand-logged call writes. Never raises: an unreadable response names nothing.
+    """
+    names: list[str] = []
+    try:
+        response = body.get("response")
+        if not isinstance(response, dict):
+            return names
+
+        def calls(items: Any) -> None:
+            for call in items if isinstance(items, list) else []:
+                if not isinstance(call, dict):
+                    continue
+                function = call.get("function")
+                name = call.get("name") or (
+                    function.get("name") if isinstance(function, dict) else None
+                )
+                if isinstance(name, str) and name:
+                    names.append(name)
+
+        calls(response.get("tool_calls"))
+        for block in response.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                calls([block])
+        for choice in response.get("choices") or []:
+            message = choice.get("message") if isinstance(choice, dict) else None
+            if isinstance(message, dict):
+                calls(message.get("tool_calls"))
+        for item in response.get("output") or []:
+            if isinstance(item, dict) and item.get("type") == "function_call":
+                calls([item])
+    except Exception:  # noqa: BLE001 - a body we cannot read links nothing
+        return []
+    return names
+
+
 def _new_run_id() -> str:
     return "run_" + "".join(secrets.choice(_ALPHABET) for _ in range(6))
 
@@ -125,6 +166,9 @@ class Run:
         body = dict(body or {})
         if self.recorder.redact is not None:
             body = self.recorder.redact(body)
+        # Read before externalising: a large response becomes a blob reference,
+        # and the tool names it carries must still be remembered.
+        requested = _requested_tools(body) if str(type) == EventType.LLM_CALL.value else []
         body = self.exporter.externalize_body(body)
         caused_by = self._observed_cause(type, body, caused_by)
         with self._lock:
@@ -137,6 +181,8 @@ class Run:
             if isinstance(body.get("cost_usd"), (int, float)):
                 self.totals["cost_usd"] += float(body["cost_usd"])
         self.exporter.export(sealed)
+        if requested:
+            self.note_tool_requests(sealed["seq"], requested)
         return sealed["seq"]
 
     def note_tool_requests(self, seq: int, tools: Iterable[str]) -> None:
