@@ -57,7 +57,8 @@ class JsonlExporter:
 
     # -- public API ---------------------------------------------------------
 
-    def export(self, event: dict[str, Any]) -> None:
+    def export(self, event: dict[str, Any]) -> bool:
+        """Queue an event for writing; False when it was dropped instead."""
         try:
             self._idle.clear()
             self._queue.put_nowait(event)
@@ -65,6 +66,8 @@ class JsonlExporter:
             # Losing a trace is bad; stalling the user's agent is worse.
             self.dropped += 1
             self._idle.set()
+            return False
+        return True
 
     def flush(self, timeout: float = 5.0) -> None:
         self._idle.wait(timeout)

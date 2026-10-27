@@ -11,8 +11,12 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class Exporter(Protocol):
-    def export(self, event: dict[str, Any]) -> None:
-        """Handle one sealed event. Must not raise into the host agent."""
+    def export(self, event: dict[str, Any]) -> bool:
+        """Accept one sealed event, or return False if it had to be dropped.
+
+        Must not raise into the host agent. Returning False lets the recorder
+        roll the chain back, so a drop is counted rather than leaving a gap.
+        """
 
     def flush(self, timeout: float = 5.0) -> None:
         """Block until buffered events are durable, or ``timeout`` elapses."""

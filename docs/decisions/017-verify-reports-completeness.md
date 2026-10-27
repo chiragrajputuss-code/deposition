@@ -1,6 +1,7 @@
 # 017 — `verify` tells a finished run from an intact prefix
 
-**Status:** accepted · **Date:** 2026-10-27
+**Status:** accepted · **Date:** 2026-10-27 · its sentence on dropped events is
+corrected by [018](018-dropped-events-keep-the-chain-intact.md)
 **Raised by:** public feedback - "one hole I'd explicitly test is suffix truncation"
 **Amends:** the exit-code meaning in [ADR 002](002-schema-v0.md) rule 5, which this does not edit
 

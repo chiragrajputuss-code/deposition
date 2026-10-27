@@ -231,6 +231,91 @@ def test_tool_names_survive_a_response_large_enough_to_become_a_blob(trace_dir):
     assert tool["caused_by"] == [turn["seq"]]
 
 
+# -- dropped events: counted, never a gap in the chain (ADR 010) -------------
+
+
+def drop_notes_marked(marker):
+    """Make the exporter behave as it does on a full queue, for marked events."""
+    run = deposition.current_run()
+    original = run.exporter.export
+
+    def full_queue(event):
+        if event["body"].get("note") == marker:
+            run.exporter.dropped += 1
+            return False
+        return original(event)
+
+    run.exporter.export = full_queue
+
+
+def test_a_dropped_event_leaves_the_chain_intact_and_is_counted(trace_dir):
+    def work():
+        drop_notes_marked("lost")
+        deposition.annotate("kept")
+        deposition.annotate("lost")
+        deposition.annotate("kept too")
+
+    path = record_run(trace_dir, work)
+    deposition.shutdown()
+    assert verify_file(path).ok
+    events = read_events(path)
+    assert [e["body"].get("note") for e in events if e["type"] == "annotation"] == [
+        "kept",
+        "kept too",
+    ]
+    totals = events[-1]["body"]["totals"]
+    assert totals["dropped"] == 1
+    assert totals["steps"] == 2  # only what is in the record, so completeness holds
+
+
+def test_log_returns_none_for_a_dropped_event_so_no_cause_cites_a_reused_seq(trace_dir):
+    seen = {}
+
+    def work():
+        drop_notes_marked("lost")
+        seen["lost"] = deposition.log("annotation", {"note": "lost"})
+        seen["next"] = deposition.log("annotation", {"note": "next"})
+
+    record_run(trace_dir, work)
+    assert seen["lost"] is None
+    assert seen["next"] == 1
+
+
+def test_verify_counts_a_dropped_event_and_audit_refuses_to_attest(trace_dir, capsys):
+    from deposition.cli import main
+
+    def work():
+        drop_notes_marked("lost")
+        deposition.annotate("lost")
+
+    path = record_run(trace_dir, work, mandate={"max_steps": 100})
+    deposition.shutdown()
+    assert main(["verify", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "1 dropped event(s) - the record admits gaps" in out
+    assert "OK completeness" in out
+    assert main(["audit", str(path)]) == 1
+    assert "NOT ATTESTABLE" in capsys.readouterr().out
+
+
+def test_events_from_many_threads_in_one_run_are_written_in_seq_order(trace_dir):
+    def work():
+        def burst():
+            for i in range(200):
+                deposition.annotate(f"event {i}")
+
+        threads = [threading.Thread(target=burst) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+    path = record_run(trace_dir, work)
+    deposition.shutdown()
+    result = verify_file(path)
+    assert result.ok, result.summary()
+
+
 # -- recording must never break the host agent ------------------------------
 
 

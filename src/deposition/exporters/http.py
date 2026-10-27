@@ -19,7 +19,7 @@ class HttpExporter:
         self.endpoint = endpoint
         raise NotImplementedError("hosted mode ships in Phase 2; use local mode for now")
 
-    def export(self, event: dict[str, Any]) -> None:  # pragma: no cover - stub
+    def export(self, event: dict[str, Any]) -> bool:  # pragma: no cover - stub
         raise NotImplementedError
 
     def flush(self, timeout: float = 5.0) -> None:  # pragma: no cover - stub

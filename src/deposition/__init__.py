@@ -162,7 +162,13 @@ class Run:
         *,
         caused_by: Iterable[int] | None = None,
     ) -> int | None:
-        """Seal and export one event; returns its ``seq`` (useful for ``caused_by``)."""
+        """Seal and export one event; returns its ``seq`` (useful for ``caused_by``).
+
+        Returns ``None`` when the exporter had to drop the event. The chain is
+        rolled back so a dropped event never takes a seq: the trace stays
+        intact, ``run_end`` counts the drop, and nothing can cite a seq that
+        the next event will reuse.
+        """
         body = dict(body or {})
         if self.recorder.redact is not None:
             body = self.recorder.redact(body)
@@ -172,7 +178,13 @@ class Run:
         body = self.exporter.externalize_body(body)
         caused_by = self._observed_cause(type, body, caused_by)
         with self._lock:
+            # Queued under the same lock that assigns the seq, so two threads
+            # recording into one run cannot write their events out of order.
+            before = (self.chain.prev_hash, self.chain.next_seq)
             sealed = self.chain.append(type, body, caused_by=caused_by)
+            if not self.exporter.export(sealed):
+                self.chain.prev_hash, self.chain.next_seq = before
+                return None
             if sealed["type"] not in (EventType.RUN_START.value, EventType.RUN_END.value):
                 self.totals["steps"] += 1
             usage = body.get("usage") or {}
@@ -180,7 +192,6 @@ class Run:
                 self.totals["tokens"] += int(usage.get("total_tokens") or 0)
             if isinstance(body.get("cost_usd"), (int, float)):
                 self.totals["cost_usd"] += float(body["cost_usd"])
-        self.exporter.export(sealed)
         if requested:
             self.note_tool_requests(sealed["seq"], requested)
         return sealed["seq"]
