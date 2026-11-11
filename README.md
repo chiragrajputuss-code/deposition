@@ -110,6 +110,10 @@ Two labels say how far a recorded event can be trusted:
 - **Corroborated:** an external event - an API call, a payment, an email, an
   external write - confirmed by the counterparty that handled it, for example by
   a receipt signed with a key the agent host cannot use. Not implemented yet.
+  A webhook signature does not qualify: HMAC with a shared secret shows the
+  payload was not edited in transit, not who sent it - the receiving host holds
+  the same secret and could mint its own. The counterparty check on that leg is
+  re-fetching the record with credentials the host does not hold.
 
 Everything under "shows" is something you can check yourself with `depo verify`
 or `depo audit`. Everything under "does not show" is a limit stated here so
@@ -173,9 +177,10 @@ nobody has to discover it.
 | Moving signing keys off the agent host | not built |
 
 This section was sharpened by public critique in
-[langchain-ai/langchain#35357](https://github.com/langchain-ai/langchain/issues/35357)
-and on r/LangChain - in particular the point that the process writing a trace is
-the same process running the tools.
+[langchain-ai/langchain#35357](https://github.com/langchain-ai/langchain/issues/35357),
+on r/LangChain and in dev.to threads - in particular the point that the process
+writing a trace is the same process running the tools, and the webhook-signature
+distinction above.
 
 ## Status
 
